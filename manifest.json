@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Web Error Monitor",
+  "version": "0.1.0",
+  "description": "Watches console and network activity for errors during local development.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "src/worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-off-16.png",
+      "48": "icons/icon-off-48.png",
+      "128": "icons/icon-off-128.png"
+    },
+    "default_title": "Web Error Monitor (off for this site)"
+  },
+  "icons": {
+    "16": "icons/icon-off-16.png",
+    "48": "icons/icon-off-48.png",
+    "128": "icons/icon-off-128.png"
+  }
+}
