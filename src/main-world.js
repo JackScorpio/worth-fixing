@@ -33,6 +33,10 @@
         },
         window.location.origin
       );
+    } catch {
+      // Instrumentation must never break the host page: if postMessage (or
+      // anything above) throws, swallow it silently and let the caller's
+      // original behavior proceed exactly as if emit() had succeeded.
     } finally {
       isCapturing = false;
     }
