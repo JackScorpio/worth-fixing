@@ -129,6 +129,19 @@ async function enableOrigin(origin, tabId) {
     await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
   } catch (error) {
     console.error(`[web-error-monitor] failed to enable ${origin}`, error);
+    // Best-effort full rollback. registerContentScripts may have already
+    // succeeded before one of the subsequent executeScript calls threw, so
+    // always attempt to unregister both script ids — if they were never
+    // registered this is a harmless no-op / benign rejection, but if they
+    // were registered, leaving them behind would permanently break future
+    // enable attempts for this origin (registerContentScripts rejects on a
+    // duplicate id, and registrations persist across service-worker restarts).
+    // Swallow failures here so they don't mask the original error above.
+    await chrome.scripting
+      .unregisterContentScripts({
+        ids: [`${SCRIPT_ID_PREFIX}-main-${origin}`, `${SCRIPT_ID_PREFIX}-content-${origin}`],
+      })
+      .catch(() => {});
     // Best-effort: revoke the permission we just got granted so we don't
     // leave a dangling grant that neither storage nor the badge reflects.
     // Swallow failures here so they don't mask the original error above.
