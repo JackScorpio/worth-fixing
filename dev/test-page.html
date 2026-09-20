@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Web Error Monitor — manual test page</title>
+</head>
+<body>
+  <h1>Web Error Monitor — manual test page</h1>
+  <p>Enable the extension on this origin, then click each button once.</p>
+  <button id="btn-throw">Throw uncaught error</button>
+  <button id="btn-reject">Reject a promise</button>
+  <button id="btn-fetch-fail">Fetch a 404</button>
+  <button id="btn-console-error">console.error</button>
+  <button id="btn-console-warn">console.warn</button>
+
+  <script>
+    document.getElementById('btn-throw').onclick = () => {
+      throw new Error('Boom: uncaught test error');
+    };
+    document.getElementById('btn-reject').onclick = () => {
+      Promise.reject(new Error('Boom: rejected promise'));
+    };
+    document.getElementById('btn-fetch-fail').onclick = () => {
+      fetch('/this-route-does-not-exist-404');
+    };
+    document.getElementById('btn-console-error').onclick = () => {
+      console.error('Boom: console.error test', { some: 'data' });
+    };
+    document.getElementById('btn-console-warn').onclick = () => {
+      console.warn('Boom: console.warn test');
+    };
+  </script>
+</body>
+</html>
