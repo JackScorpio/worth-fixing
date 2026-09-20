@@ -66,3 +66,111 @@ async function incrementDedupeCountUnsafe(fingerprint) {
   await chrome.storage.local.set({ dedupeCounts });
   return dedupeCounts[fingerprint];
 }
+
+// appended to src/worker.js
+const SCRIPT_ID_PREFIX = 'web-error-monitor';
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id || !tab.url) return;
+  let origin;
+  try {
+    origin = new URL(tab.url).origin;
+  } catch {
+    return; // chrome:// pages, etc. can't be targeted
+  }
+
+  const enabled = await isOriginEnabled(origin);
+  if (enabled) {
+    await disableOrigin(origin, tab.id);
+  } else {
+    await enableOrigin(origin, tab.id);
+  }
+});
+
+async function isOriginEnabled(origin) {
+  const { enabledOrigins = {} } = await chrome.storage.local.get('enabledOrigins');
+  return !!enabledOrigins[origin];
+}
+
+async function setOriginEnabled(origin, value) {
+  const { enabledOrigins = {} } = await chrome.storage.local.get('enabledOrigins');
+  enabledOrigins[origin] = value;
+  await chrome.storage.local.set({ enabledOrigins });
+}
+
+function originPattern(origin) {
+  return `${origin}/*`;
+}
+
+async function enableOrigin(origin, tabId) {
+  const pattern = originPattern(origin);
+  const granted = await chrome.permissions.request({ origins: [pattern] });
+  if (!granted) return;
+
+  await chrome.scripting.registerContentScripts([
+    {
+      id: `${SCRIPT_ID_PREFIX}-main-${origin}`,
+      matches: [pattern],
+      js: ['src/main-world.js'],
+      world: 'MAIN',
+      runAt: 'document_start',
+    },
+    {
+      id: `${SCRIPT_ID_PREFIX}-content-${origin}`,
+      matches: [pattern],
+      js: ['src/content.js'],
+      runAt: 'document_start',
+    },
+  ]);
+
+  await setOriginEnabled(origin, true);
+  await refreshBadgeForTab(tabId, `${origin}/`);
+
+  // The page already loaded before permission was granted, so inject once
+  // immediately in addition to the persistent registration above.
+  await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['src/main-world.js'] });
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
+}
+
+async function disableOrigin(origin, tabId) {
+  await chrome.tabs.sendMessage(tabId, { type: 'TEARDOWN' }).catch(() => {});
+
+  await chrome.scripting
+    .unregisterContentScripts({
+      ids: [`${SCRIPT_ID_PREFIX}-main-${origin}`, `${SCRIPT_ID_PREFIX}-content-${origin}`],
+    })
+    .catch(() => {});
+
+  await chrome.permissions.remove({ origins: [originPattern(origin)] }).catch(() => {});
+  await setOriginEnabled(origin, false);
+  await refreshBadgeForTab(tabId, `${origin}/`);
+}
+
+async function refreshBadgeForTab(tabId, url) {
+  let enabled = false;
+  if (url) {
+    try {
+      enabled = await isOriginEnabled(new URL(url).origin);
+    } catch {
+      enabled = false;
+    }
+  }
+  await chrome.action.setBadgeText({ tabId, text: enabled ? 'ON' : '' });
+  await chrome.action.setBadgeBackgroundColor({ tabId, color: '#2e7d32' });
+  await chrome.action.setIcon({
+    tabId,
+    path: enabled
+      ? { 16: 'icons/icon-on-16.png', 48: 'icons/icon-on-48.png', 128: 'icons/icon-on-128.png' }
+      : { 16: 'icons/icon-off-16.png', 48: 'icons/icon-off-48.png', 128: 'icons/icon-off-128.png' },
+  });
+}
+
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  await refreshBadgeForTab(tabId, tab?.url);
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'loading') return;
+  await refreshBadgeForTab(tabId, tab.url);
+});
