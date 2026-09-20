@@ -67,7 +67,6 @@ async function incrementDedupeCountUnsafe(fingerprint) {
   return dedupeCounts[fingerprint];
 }
 
-// appended to src/worker.js
 const SCRIPT_ID_PREFIX = 'web-error-monitor';
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -107,29 +106,38 @@ async function enableOrigin(origin, tabId) {
   const granted = await chrome.permissions.request({ origins: [pattern] });
   if (!granted) return;
 
-  await chrome.scripting.registerContentScripts([
-    {
-      id: `${SCRIPT_ID_PREFIX}-main-${origin}`,
-      matches: [pattern],
-      js: ['src/main-world.js'],
-      world: 'MAIN',
-      runAt: 'document_start',
-    },
-    {
-      id: `${SCRIPT_ID_PREFIX}-content-${origin}`,
-      matches: [pattern],
-      js: ['src/content.js'],
-      runAt: 'document_start',
-    },
-  ]);
+  try {
+    await chrome.scripting.registerContentScripts([
+      {
+        id: `${SCRIPT_ID_PREFIX}-main-${origin}`,
+        matches: [pattern],
+        js: ['src/main-world.js'],
+        world: 'MAIN',
+        runAt: 'document_start',
+      },
+      {
+        id: `${SCRIPT_ID_PREFIX}-content-${origin}`,
+        matches: [pattern],
+        js: ['src/content.js'],
+        runAt: 'document_start',
+      },
+    ]);
+
+    // The page already loaded before permission was granted, so inject once
+    // immediately in addition to the persistent registration above.
+    await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['src/main-world.js'] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
+  } catch (error) {
+    console.error(`[web-error-monitor] failed to enable ${origin}`, error);
+    // Best-effort: revoke the permission we just got granted so we don't
+    // leave a dangling grant that neither storage nor the badge reflects.
+    // Swallow failures here so they don't mask the original error above.
+    await chrome.permissions.remove({ origins: [pattern] }).catch(() => {});
+    return;
+  }
 
   await setOriginEnabled(origin, true);
   await refreshBadgeForTab(tabId, `${origin}/`);
-
-  // The page already loaded before permission was granted, so inject once
-  // immediately in addition to the persistent registration above.
-  await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['src/main-world.js'] });
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
 }
 
 async function disableOrigin(origin, tabId) {
@@ -139,9 +147,14 @@ async function disableOrigin(origin, tabId) {
     .unregisterContentScripts({
       ids: [`${SCRIPT_ID_PREFIX}-main-${origin}`, `${SCRIPT_ID_PREFIX}-content-${origin}`],
     })
-    .catch(() => {});
+    .catch((error) => {
+      console.error(`[web-error-monitor] failed to unregister content scripts for ${origin}`, error);
+    });
 
-  await chrome.permissions.remove({ origins: [originPattern(origin)] }).catch(() => {});
+  await chrome.permissions.remove({ origins: [originPattern(origin)] }).catch((error) => {
+    console.error(`[web-error-monitor] failed to remove permission for ${origin}`, error);
+  });
+
   await setOriginEnabled(origin, false);
   await refreshBadgeForTab(tabId, `${origin}/`);
 }
