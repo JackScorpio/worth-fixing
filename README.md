@@ -4,8 +4,9 @@ A Chrome (Manifest V3) extension that watches console and network activity
 on pages you're actively developing and surfaces errors you'd otherwise
 scroll past. See `BRIEF.md` for the full design.
 
-**Status:** Phase 1 (capture + toggle). No HUD yet — captured events are
-logged to the background service worker's console only.
+**Status:** Phase 2 (capture + toggle + on-page HUD). Captured events now
+surface directly on the page you're developing, in addition to being logged
+to the background service worker's console.
 
 ## Load it unpacked
 
@@ -22,12 +23,35 @@ the extension avoids requesting access to every site up front. Click the
 icon again to turn it off. The on/off state persists per-origin across
 reloads and browser restarts.
 
-## Watch captured events
+## The HUD
+
+Once the extension is enabled on a site, a small pill appears in the
+bottom-right corner of the page. It shows severity-colored dot counts —
+red for uncaught exceptions, unhandled rejections, and network errors;
+amber for `console.error` calls; grey for everything else — so you can
+tell at a glance whether anything needs attention without leaving the page.
+
+Click the pill to expand a panel listing captured errors grouped by
+fingerprint, each with an occurrence count. Click a row to expand it and
+see the full stack trace, along with a "Copy" button that copies the
+message, stack, and URL to your clipboard. A "Clear" button in the panel
+header resets the currently visible list; counts also reset naturally on
+navigation, since the HUD's in-memory state doesn't survive a page load.
+The panel's collapsed/expanded state is remembered per site, so it stays
+out of your way (or stays open) across reloads.
+
+The HUD is now the primary way to see errors while developing. The service
+worker console (below) remains a secondary view, useful mainly for
+debugging the extension itself.
+
+## Watch captured events (service worker console)
 
 1. Go to `chrome://extensions`.
 2. Find "Web Error Monitor" and click "Inspect views: service worker".
 3. Trigger an error on the page — it will be logged as a normalized record
-   in that DevTools console.
+   in that DevTools console. This is most useful when debugging the
+   extension's own capture and messaging logic, since it shows the raw
+   records as they're received rather than how they render in the HUD.
 
 ## Manual test page
 
@@ -51,5 +75,5 @@ npm test
 
 ## Setting the API key (Phase 3, not yet built)
 
-N/A yet — Phase 1 has no network calls to a classification API and no key
+N/A yet — Phase 2 has no network calls to a classification API and no key
 handling of any kind.

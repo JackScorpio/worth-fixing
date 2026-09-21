@@ -11,12 +11,21 @@
   // global, so this flag persists across re-injections and can't collide with
   // main-world.js's `window.__webErrorMonitorInstalled` (a different, MAIN-world,
   // `window`) or with anything the page itself does.
+
+  // Runs on every injection, even a re-injection that the bridge guard
+  // below will otherwise short-circuit: hud.js resets its own install flag
+  // in teardown() (so a disable->enable cycle without a page reload
+  // rebuilds a fresh, uninitialized HUD module), but content.js's guard is
+  // permanent by design (its listeners can't be un-installed). Without
+  // this call running unconditionally, that fresh HUD module would never
+  // receive its init() call and would silently no-op forever until the
+  // next page reload, while capture kept working invisibly.
+  window.__webErrorMonitorHud?.init(window.location.origin);
+
   if (window.__webErrorMonitorBridgeInstalled) return;
   window.__webErrorMonitorBridgeInstalled = true;
 
   const TAG = '__web_error_monitor__';
-
-  window.__webErrorMonitorHud.init(window.location.origin);
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;

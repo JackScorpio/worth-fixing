@@ -87,6 +87,7 @@
   }
 
   function applyCollapsed(value) {
+    if (!els) return;
     collapsed = value;
     els.panel.hidden = collapsed;
     els.pill.setAttribute('aria-expanded', String(!collapsed));
