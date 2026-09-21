@@ -116,7 +116,8 @@
     els.countGrey.textContent = String(grey);
   }
 
-  function buildRow(fingerprint, record, count) {
+  function buildRow(fingerprint, entry) {
+    const { record, count, expanded } = entry;
     const row = document.createElement('div');
     row.className = 'wem-row';
     row.dataset.fingerprint = fingerprint;
@@ -139,7 +140,7 @@
 
     const detail = document.createElement('div');
     detail.className = 'wem-row-detail';
-    detail.hidden = true;
+    detail.hidden = !expanded;
     const stack = document.createElement('pre');
     stack.className = 'wem-row-stack';
     stack.textContent = record.stack || '(no stack available)';
@@ -155,7 +156,8 @@
     detail.append(stack, copyBtn);
 
     summary.addEventListener('click', () => {
-      detail.hidden = !detail.hidden;
+      entry.expanded = !entry.expanded;
+      detail.hidden = !entry.expanded;
     });
 
     row.append(summary, source, detail);
@@ -167,8 +169,8 @@
     const entries = Array.from(groups.entries()).sort(
       (a, b) => b[1].record.timestamp - a[1].record.timestamp
     );
-    for (const [fingerprint, { record, count }] of entries) {
-      els.list.appendChild(buildRow(fingerprint, record, count));
+    for (const [fingerprint, entry] of entries) {
+      els.list.appendChild(buildRow(fingerprint, entry));
     }
   }
 
@@ -178,6 +180,7 @@
     groups.set(record.fingerprint, {
       record,
       count: (existing ? existing.count : 0) + 1,
+      expanded: existing ? existing.expanded : false,
     });
     renderCounts();
     renderList();
