@@ -7,6 +7,7 @@ import { computeFingerprint } from '../lib/fingerprint.js';
 import { sourceFileFromStack } from '../lib/stack.js';
 import { applyDedupeIncrement } from '../lib/dedupe.js';
 import { isOriginEnabled } from './injection.js';
+import { getClassification, queueForClassification } from './classification.js';
 
 const IGNORE_STACK_FILES = ['main-world.js'];
 
@@ -63,6 +64,15 @@ async function handleCaptureEvent(message, sender) {
   console.log(`[web-error-monitor] ${record.kind} (x${count}) fp=${fingerprint}`, record);
 
   const classification = await getClassification(fingerprint);
+  if (!classification) {
+    // Cache miss: kick off the debounced classification pipeline. This is
+    // fire-and-forget — classification is inherently async (network call,
+    // possible retries), so the raw error is sent to the HUD immediately
+    // below with classification: null, and a later CLASSIFICATION_UPDATE
+    // message (from classification.js) fills it in once it's ready.
+    queueForClassification(record);
+  }
+
   const tabId = sender.tab?.id;
   if (tabId) {
     chrome.tabs
@@ -74,16 +84,6 @@ async function handleCaptureEvent(message, sender) {
         // the durable record of this event either way.
       });
   }
-}
-
-async function getClassification(fingerprint) {
-  // Phase 3 will look this up in a chrome.storage.local `classifications`
-  // cache keyed by fingerprint (BRIEF §7: "classified exactly once, ever").
-  // No classification exists yet — always null. The HUD already knows how
-  // to render a record with no classification via its kind-based severity
-  // fallback, so this is a placeholder that needs no caller changes when
-  // Phase 3 fills it in.
-  return null;
 }
 
 // Module-scope mutex serializing all read-modify-write access to the
