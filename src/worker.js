@@ -198,7 +198,7 @@ async function enableOrigin(origin, tabId) {
         {
           id: contentId,
           matches: [pattern],
-          js: ['src/content.js'],
+          js: ['src/hud/styles.js', 'src/hud/hud.js', 'src/content.js'],
           runAt: 'document_start',
         },
       ]);
@@ -216,7 +216,10 @@ async function enableOrigin(origin, tabId) {
       // (content.js's own re-injection guard now protects against that too,
       // but skipping the redundant injection is the more correct fix).
       await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['src/main-world.js'] });
-      await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['src/hud/styles.js', 'src/hud/hud.js', 'src/content.js'],
+      });
     }
   } catch (error) {
     console.error(`[web-error-monitor] failed to enable ${origin}`, error);

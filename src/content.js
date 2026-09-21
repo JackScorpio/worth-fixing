@@ -16,6 +16,8 @@
 
   const TAG = '__web_error_monitor__';
 
+  window.__webErrorMonitorHud.init(window.location.origin);
+
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     if (!event.data || event.data.source !== TAG) return;
@@ -34,8 +36,12 @@
   });
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message && message.type === 'TEARDOWN') {
+    if (!message) return;
+    if (message.type === 'TEARDOWN') {
       window.postMessage({ source: TAG, type: 'TEARDOWN' }, window.location.origin);
+      window.__webErrorMonitorHud.teardown();
+    } else if (message.type === 'RECORD') {
+      window.__webErrorMonitorHud.render(message.record);
     }
   });
 })();
