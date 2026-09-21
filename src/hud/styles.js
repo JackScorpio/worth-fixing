@@ -96,22 +96,27 @@ window.__webErrorMonitorHudCss = `
   .wem-row-detail {
     margin-top: 6px;
   }
-  .wem-muted-section {
-    margin-top: 4px;
+  .wem-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px 0 10px;
   }
-  .wem-muted-toggle {
-    width: 100%;
-    text-align: left;
+  .wem-tab {
+    flex: 1;
     background: none;
     border: none;
     color: inherit;
-    opacity: 0.6;
+    opacity: 0.55;
     cursor: pointer;
-    font-size: 11px;
-    padding: 6px 10px;
+    font-size: 10px;
+    padding: 6px 4px;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
   }
-  .wem-muted-list {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  .wem-tab-active {
+    opacity: 1;
+    font-weight: 600;
+    border-bottom-color: #7c3aed;
   }
   .wem-row-full-message {
     white-space: pre-wrap;

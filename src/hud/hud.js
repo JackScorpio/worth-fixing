@@ -7,10 +7,10 @@
 
   let hostEl = null;
   let shadowRoot = null;
-  let els = null; // { pill, countRed, countAmber, countGrey, panel, list }
+  let els = null; // { pill, countRed, countAmber, countGrey, panel, list, tabButtons }
   let groups = new Map(); // fingerprint -> { record, count }
   let collapsed = true;
-  let mutedSectionExpanded = false;
+  let activeTab = 'needsAttention'; // 'needsAttention' | 'all' | 'muted'
   let currentOrigin = null;
 
   function truncate(message) {
@@ -35,6 +35,14 @@
 
   function isMuted(record) {
     return !!record.classification?.muted;
+  }
+
+  function needsAttention(record) {
+    if (isMuted(record)) return false;
+    const color = severityColor(record);
+    if (color === 'red' || color === 'amber') return true;
+    const silentProb = record.classification?.silentBug?.probability;
+    return typeof silentProb === 'number' && silentProb > 0.5;
   }
 
   function buildDom() {
@@ -67,10 +75,24 @@
     collapseBtn.addEventListener('click', () => setCollapsed(true));
     header.append(title, clearBtn, collapseBtn);
 
+    const tabsEl = document.createElement('div');
+    tabsEl.className = 'wem-tabs';
+    const tabButtons = {
+      needsAttention: document.createElement('button'),
+      all: document.createElement('button'),
+      muted: document.createElement('button'),
+    };
+    for (const [tab, btn] of Object.entries(tabButtons)) {
+      btn.type = 'button';
+      btn.className = 'wem-tab';
+      btn.addEventListener('click', () => setActiveTab(tab));
+      tabsEl.appendChild(btn);
+    }
+
     const list = document.createElement('div');
     list.className = 'wem-list';
 
-    panel.append(header, list);
+    panel.append(header, tabsEl, list);
 
     const pill = document.createElement('button');
     pill.type = 'button';
@@ -95,7 +117,7 @@
     shadowRoot.appendChild(root);
     document.documentElement.appendChild(hostEl);
 
-    els = { pill, countRed, countAmber, countGrey, panel, list };
+    els = { pill, countRed, countAmber, countGrey, panel, list, tabButtons };
   }
 
   function applyCollapsed(value) {
@@ -114,20 +136,45 @@
     });
   }
 
+  const TAB_LABELS = { needsAttention: 'Needs attention', all: 'All', muted: 'Muted' };
+
+  function setActiveTab(tab) {
+    activeTab = tab;
+    applyActiveTabStyle();
+    renderList();
+  }
+
+  function applyActiveTabStyle() {
+    if (!els) return;
+    for (const [tab, btn] of Object.entries(els.tabButtons)) {
+      btn.classList.toggle('wem-tab-active', tab === activeTab);
+    }
+  }
+
   function renderCounts() {
     let red = 0;
     let amber = 0;
     let grey = 0;
+    let needsAttentionCount = 0;
+    let mutedCount = 0;
     for (const { record } of groups.values()) {
-      if (isMuted(record)) continue;
+      if (isMuted(record)) {
+        mutedCount++;
+        continue;
+      }
       const color = severityColor(record);
       if (color === 'red') red++;
       else if (color === 'amber') amber++;
       else grey++;
+      if (needsAttention(record)) needsAttentionCount++;
     }
     els.countRed.textContent = String(red);
     els.countAmber.textContent = String(amber);
     els.countGrey.textContent = String(grey);
+
+    els.tabButtons.needsAttention.textContent = `${TAB_LABELS.needsAttention} (${needsAttentionCount})`;
+    els.tabButtons.all.textContent = `${TAB_LABELS.all} (${groups.size})`;
+    els.tabButtons.muted.textContent = `${TAB_LABELS.muted} (${mutedCount})`;
   }
 
   function buildRow(fingerprint, entry) {
@@ -196,46 +243,21 @@
     return row;
   }
 
+  function filterForActiveTab(entries) {
+    if (activeTab === 'all') return entries;
+    if (activeTab === 'muted') return entries.filter(([, entry]) => isMuted(entry.record));
+    return entries.filter(([, entry]) => needsAttention(entry.record));
+  }
+
   function renderList() {
     els.list.replaceChildren();
     const entries = Array.from(groups.entries()).sort(
       (a, b) => b[1].record.timestamp - a[1].record.timestamp
     );
-    const mainEntries = entries.filter(([, entry]) => !isMuted(entry.record));
-    const mutedEntries = entries.filter(([, entry]) => isMuted(entry.record));
-
-    for (const [fingerprint, entry] of mainEntries) {
+    const visibleEntries = filterForActiveTab(entries);
+    for (const [fingerprint, entry] of visibleEntries) {
       els.list.appendChild(buildRow(fingerprint, entry));
     }
-
-    if (mutedEntries.length > 0) {
-      els.list.appendChild(buildMutedSection(mutedEntries));
-    }
-  }
-
-  function buildMutedSection(mutedEntries) {
-    const section = document.createElement('div');
-    section.className = 'wem-muted-section';
-
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'wem-muted-toggle';
-    toggle.textContent = `Muted (framework noise) ×${mutedEntries.length}`;
-
-    const list = document.createElement('div');
-    list.className = 'wem-muted-list';
-    list.hidden = !mutedSectionExpanded;
-    for (const [fingerprint, entry] of mutedEntries) {
-      list.appendChild(buildRow(fingerprint, entry));
-    }
-
-    toggle.addEventListener('click', () => {
-      mutedSectionExpanded = !mutedSectionExpanded;
-      list.hidden = !mutedSectionExpanded;
-    });
-
-    section.append(toggle, list);
-    return section;
   }
 
   function render(record) {
@@ -269,6 +291,8 @@
     if (els) return; // already initialized this page load
     currentOrigin = origin;
     buildDom();
+    applyActiveTabStyle();
+    renderCounts(); // paints "Needs attention (0)" etc. immediately, before any error arrives
     chrome.storage.local.get('hudState').then(({ hudState = {} }) => {
       const originState = hudState[origin];
       applyCollapsed(originState ? originState.collapsed : true);
@@ -283,7 +307,7 @@
     shadowRoot = null;
     els = null;
     groups = new Map();
-    mutedSectionExpanded = false;
+    activeTab = 'needsAttention';
     window.__webErrorMonitorHudInstalled = false;
   }
 
