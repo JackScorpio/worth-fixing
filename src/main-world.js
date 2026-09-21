@@ -95,12 +95,20 @@
     const method = (init && init.method) || 'GET';
     const url = typeof resource === 'string' ? resource : resource?.url || String(resource);
     const start = performance.now();
+    // Captured here, synchronously at the call site, not inside the .then()/
+    // .catch() below: by the time those async callbacks run, the real
+    // caller's stack is gone (only microtask frames remain), which used to
+    // make every network event's sourceFile null.
+    const callSiteStack = captureStack();
     return originals.fetch.apply(window, args).then(
       (response) => {
-        if (!response.ok) {
+        // Opaque responses (mode: 'no-cors', e.g. analytics beacons, third-
+        // party fonts) and opaque redirects always report status 0 and
+        // ok: false even on success — they are not failures.
+        if (!response.ok && response.type !== 'opaque' && response.type !== 'opaqueredirect') {
           emit('network', {
             message: `${method} ${url} -> ${response.status}`,
-            stack: captureStack(),
+            stack: callSiteStack,
             request: {
               method,
               url,
@@ -115,7 +123,7 @@
       (error) => {
         emit('network', {
           message: `${method} ${url} -> ${error.message}`,
-          stack: error.stack || captureStack(),
+          stack: error.stack || callSiteStack,
           request: {
             method,
             url,
@@ -130,30 +138,40 @@
   };
 
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    this.__webErrorMonitor = { method, url, start: 0 };
+    this.__webErrorMonitor = { method, url, start: 0, stack: null };
     return originals.xhrOpen.call(this, method, url, ...rest);
   };
 
   XMLHttpRequest.prototype.send = function (...args) {
     const meta = this.__webErrorMonitor;
-    if (meta) meta.start = performance.now();
-    this.addEventListener('loadend', () => {
-      if (!meta) return;
-      const isFailure = this.status === 0 || this.status >= 400;
-      if (isFailure) {
-        emit('network', {
-          message: `${meta.method} ${meta.url} -> ${this.status || 'network error'}`,
-          stack: captureStack(),
-          request: {
-            method: meta.method,
-            url: meta.url,
-            status: this.status,
-            statusText: this.statusText,
-            durationMs: Math.round(performance.now() - meta.start),
-          },
-        });
-      }
-    });
+    if (meta) {
+      meta.start = performance.now();
+      // Captured here, synchronously at send() time, for the same reason as
+      // the fetch call site above — the loadend listener below only runs
+      // once the request finishes, well after this stack is gone.
+      meta.stack = captureStack();
+    }
+    this.addEventListener(
+      'loadend',
+      () => {
+        if (!meta) return;
+        const isFailure = this.status === 0 || this.status >= 400;
+        if (isFailure) {
+          emit('network', {
+            message: `${meta.method} ${meta.url} -> ${this.status || 'network error'}`,
+            stack: meta.stack,
+            request: {
+              method: meta.method,
+              url: meta.url,
+              status: this.status,
+              statusText: this.statusText,
+              durationMs: Math.round(performance.now() - meta.start),
+            },
+          });
+        }
+      },
+      { once: true }
+    );
     return originals.xhrSend.apply(this, args);
   };
 
