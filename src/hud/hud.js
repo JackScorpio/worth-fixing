@@ -186,6 +186,45 @@
     els.tabButtons.muted.textContent = `${TAB_LABELS.muted} (${mutedCount})`;
   }
 
+  // Renders Jev's actual per-question answers (not just the summary color
+  // dot) for the row's expanded detail. Returns null when there's nothing
+  // to show — not yet classified, or a negatively-cached failure marker
+  // (see src/worker/classification.js's cacheFailure) which has no
+  // priority/origin/silentBug fields to render.
+  function buildJevDetail(classification) {
+    if (!classification || classification.failed) return null;
+    const rows = [];
+    if (classification.priority) {
+      const { score, legend, confidence } = classification.priority;
+      const label = legend && legend[Math.round(score)] ? legend[Math.round(score)] : `score ${score}`;
+      rows.push(['Priority', `${label} (${Math.round((confidence ?? 0) * 100)}% confidence)`]);
+    }
+    if (classification.origin) {
+      const { choice, confidence } = classification.origin;
+      rows.push(['Origin', `${choice.replace(/_/g, ' ')} (${Math.round((confidence ?? 0) * 100)}% confidence)`]);
+    }
+    if (classification.silentBug) {
+      rows.push(['Silent bug risk', `${Math.round(classification.silentBug.probability * 100)}%`]);
+    }
+    if (rows.length === 0) return null;
+
+    const container = document.createElement('div');
+    container.className = 'wem-jev-detail';
+    for (const [label, value] of rows) {
+      const row = document.createElement('div');
+      row.className = 'wem-jev-row';
+      const labelEl = document.createElement('span');
+      labelEl.className = 'wem-jev-label';
+      labelEl.textContent = label;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'wem-jev-value';
+      valueEl.textContent = value;
+      row.append(labelEl, valueEl);
+      container.appendChild(row);
+    }
+    return container;
+  }
+
   function buildRow(fingerprint, entry) {
     const { record, count, expanded } = entry;
     const row = document.createElement('div');
@@ -227,6 +266,8 @@
       fullMessage.textContent = record.message;
       detailChildren.push(fullMessage);
     }
+    const jevDetail = buildJevDetail(record.classification);
+    if (jevDetail) detailChildren.push(jevDetail);
     const stack = document.createElement('pre');
     stack.className = 'wem-row-stack';
     stack.textContent = record.stack || '(no stack available)';

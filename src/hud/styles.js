@@ -132,6 +132,28 @@ window.__webErrorMonitorHudCss = `
     font-weight: 600;
     border-bottom-color: #7c3aed;
   }
+  .wem-jev-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: rgba(124, 58, 237, 0.08);
+    border: 1px solid rgba(124, 58, 237, 0.25);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin: 0 0 6px 0;
+    font-size: 11px;
+  }
+  .wem-jev-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .wem-jev-label {
+    opacity: 0.65;
+  }
+  .wem-jev-value {
+    text-align: right;
+  }
   .wem-row-full-message {
     white-space: pre-wrap;
     word-break: break-word;
