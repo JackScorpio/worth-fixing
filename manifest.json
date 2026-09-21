@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Watches console and network activity for errors during local development.",
   "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": ["https://api.typesafe.ai/*"],
   "optional_host_permissions": ["*://*/*"],
   "background": {
     "service_worker": "src/worker.js",
@@ -21,5 +22,6 @@
     "16": "icons/icon-off-16.png",
     "48": "icons/icon-off-48.png",
     "128": "icons/icon-off-128.png"
-  }
+  },
+  "options_page": "src/options/options.html"
 }
