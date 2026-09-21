@@ -52,3 +52,11 @@ button[type="submit"] {
   color: #2e7d32;
   min-height: 18px;
 }
+.warning {
+  background: #fdecea;
+  border: 1px solid #f5c6cb;
+  color: #b3261e;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 12px 0;
+}

@@ -10,11 +10,17 @@ const apiKeyInput = document.getElementById('api-key');
 const sessionCapInput = document.getElementById('session-cap');
 const testBtn = document.getElementById('test-key-btn');
 const status = document.getElementById('status');
+const keyInvalidWarning = document.getElementById('key-invalid-warning');
 
 async function load() {
-  const { jevApiKey, sessionCap } = await chrome.storage.local.get(['jevApiKey', 'sessionCap']);
+  const { jevApiKey, sessionCap, jevKeyInvalid } = await chrome.storage.local.get([
+    'jevApiKey',
+    'sessionCap',
+    'jevKeyInvalid',
+  ]);
   apiKeyInput.value = jevApiKey || '';
   sessionCapInput.value = sessionCap || DEFAULT_SESSION_CAP;
+  keyInvalidWarning.hidden = !jevKeyInvalid;
 }
 
 form.addEventListener('submit', async (event) => {
@@ -22,6 +28,7 @@ form.addEventListener('submit', async (event) => {
   const jevApiKey = apiKeyInput.value.trim();
   const sessionCap = Number(sessionCapInput.value) || DEFAULT_SESSION_CAP;
   await chrome.storage.local.set({ jevApiKey, sessionCap, jevKeyInvalid: false });
+  keyInvalidWarning.hidden = true;
   status.textContent = 'Saved.';
 });
 

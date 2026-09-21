@@ -66,9 +66,23 @@ function buildState(record) {
   };
 }
 
+// Cooldowns for negatively-cached failures (see cacheFailure below). Terminal
+// failures (422 — a bad request shape, i.e. our own bug) get a long cooldown
+// since nothing about retrying sooner would help; transient ones (network
+// blips, exhausted 429/529 retries, an unrecognized status) get a short one
+// since those often clear up on their own.
+const TERMINAL_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;
+const TRANSIENT_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
+
 export async function getClassification(fingerprint) {
   const { classifications = {} } = await chrome.storage.local.get('classifications');
-  return classifications[fingerprint] || null;
+  const entry = classifications[fingerprint];
+  if (!entry) return null;
+  if (entry.failed) {
+    const cooldown = entry.terminal ? TERMINAL_FAILURE_COOLDOWN_MS : TRANSIENT_FAILURE_COOLDOWN_MS;
+    if (Date.now() - entry.failedAt >= cooldown) return null; // cooldown elapsed: let it be retried
+  }
+  return entry;
 }
 
 // Module-scope mutex serializing all read-modify-write access to the
@@ -93,6 +107,15 @@ async function cacheClassificationUnsafe(fingerprint, classification) {
   const { classifications = {} } = await chrome.storage.local.get('classifications');
   classifications[fingerprint] = classification;
   await chrome.storage.local.set({ classifications });
+}
+
+// Negatively caches a failed classification attempt so a recurring error
+// doesn't re-attempt (and re-spend session cap) on every occurrence while
+// the failure is guaranteed to repeat. Shares cacheClassification's storage
+// key and mutex — a failure marker is just a different shape stored under
+// the same fingerprint.
+function cacheFailure(fingerprint, { terminal }) {
+  return cacheClassification(fingerprint, { failed: true, terminal, failedAt: Date.now() });
 }
 
 async function isSessionCapReached() {
@@ -148,13 +171,7 @@ function computeMuted(origin) {
   return origin.choice === 'framework_noise' || origin.choice === 'browser_extension';
 }
 
-async function classifyWithRetry(record) {
-  const { jevApiKey } = await chrome.storage.local.get('jevApiKey');
-  if (!jevApiKey) {
-    console.warn('[web-error-monitor] no Jev API key configured; skipping classification');
-    return null;
-  }
-
+async function classifyWithRetry(record, jevApiKey) {
   const requestBody = buildJevRequest({ state: buildState(record), model: JEV_MODEL, questions: QUESTIONS });
 
   for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
@@ -167,6 +184,7 @@ async function classifyWithRetry(record) {
       });
     } catch (error) {
       console.error('[web-error-monitor] Jev request failed to send', error);
+      await cacheFailure(record.fingerprint, { terminal: false });
       return null;
     }
 
@@ -199,6 +217,7 @@ async function classifyWithRetry(record) {
     if (response.status === 422) {
       const body = await response.text().catch(() => '');
       console.error('[web-error-monitor] Jev request failed validation (422), not retrying', body);
+      await cacheFailure(record.fingerprint, { terminal: true });
       return null;
     }
 
@@ -217,22 +236,37 @@ async function classifyWithRetry(record) {
     }
 
     console.error(`[web-error-monitor] unexpected Jev response status ${response.status}`);
+    await cacheFailure(record.fingerprint, { terminal: false });
     return null;
   }
 
   console.error('[web-error-monitor] Jev request exhausted retries, degrading to unclassified');
+  await cacheFailure(record.fingerprint, { terminal: false });
   return null;
 }
 
 async function classifyAndNotify(fingerprint, record) {
+  // Checked before the session cap: neither path below makes an API call,
+  // so neither should cost a cap slot (previously the cap was charged for
+  // every captured error regardless of whether a key was even configured).
+  const { jevApiKey, jevKeyInvalid } = await chrome.storage.local.get(['jevApiKey', 'jevKeyInvalid']);
+  if (!jevApiKey) {
+    console.warn('[web-error-monitor] no Jev API key configured; skipping classification');
+    return;
+  }
+  if (jevKeyInvalid) {
+    console.warn(`[web-error-monitor] Jev API key is marked invalid, skipping ${fingerprint} — fix it in the options page`);
+    return;
+  }
+
   if (await isSessionCapReached()) {
     console.warn(`[web-error-monitor] session classification cap reached, skipping ${fingerprint}`);
     return;
   }
   await incrementSessionCount();
 
-  const classification = await classifyWithRetry(record);
-  if (!classification) return;
+  const classification = await classifyWithRetry(record, jevApiKey);
+  if (!classification) return; // classifyWithRetry already negatively cached the failure, where applicable
 
   await cacheClassification(fingerprint, classification);
   await notifyTabs(record.origin, fingerprint, classification);
