@@ -16,6 +16,11 @@ export function topFrameLocation(stack, { ignoreFiles = [] } = {}) {
     const match = frame.match(FRAME_LOCATION_RE);
     if (!match) continue;
     const [, file, line, col] = match;
+    // Page source is never served from chrome-extension://: any such frame
+    // is instrumentation — ours, or another extension's console/error
+    // patcher (e.g. React DevTools' installHook.js) sitting ahead of the
+    // real caller in the stack.
+    if (file.startsWith('chrome-extension://')) continue;
     if (ignoreFiles.some((ignored) => file.includes(ignored))) continue;
     return { raw: frame, file, line: Number(line), col: Number(col) };
   }

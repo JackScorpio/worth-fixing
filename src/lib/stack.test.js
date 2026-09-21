@@ -59,3 +59,18 @@ test('normalizedFrameKey still distinguishes different files', () => {
 test('normalizedFrameKey returns an empty string when there is no frame', () => {
   assert.equal(normalizedFrameKey(null), '');
 });
+
+test('topFrameLocation skips any chrome-extension:// frame, not just our own main-world.js', () => {
+  // React/Redux/Vue DevTools patch console.error/console.warn too, inserting
+  // their own wrapper frame (e.g. installHook.js) ahead of the real caller.
+  // Without this, sourceFile points at another extension's internals instead
+  // of the page's own code.
+  const stackWithReactDevTools = [
+    'Error',
+    '    at console.overrideMethod [as error] (chrome-extension://fmkadmapgofadopljbjfkapdkoienihi/build/installHook.js:1:168574)',
+    '    at HTMLButtonElement.onclick (http://localhost:8000/test-page.html:27:15)',
+  ].join('\n');
+  const top = topFrameLocation(stackWithReactDevTools);
+  assert.equal(top.file, 'http://localhost:8000/test-page.html');
+  assert.equal(top.line, 27);
+});
