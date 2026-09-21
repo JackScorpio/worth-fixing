@@ -13,7 +13,7 @@ export async function computeFingerprint({ kind, message, stack, ignoreFiles, st
   const normalizedMessage = normalizeMessage(message);
   const top = topFrameLocation(stack, { ignoreFiles });
   const frameKey = normalizedFrameKey(top);
-  const statusPart = status === undefined || status === null ? '' : String(status);
+  const statusPart = status ?? '';
   const input = `${kind}|${normalizedMessage}|${frameKey}|${statusPart}`;
   const hash = await sha256Hex(input);
   return hash.slice(0, 16);

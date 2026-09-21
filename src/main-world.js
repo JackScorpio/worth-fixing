@@ -57,10 +57,21 @@
   }
 
   function captureStack() {
-    const err = new Error();
-    const lines = (err.stack || '').split('\n');
-    const filtered = lines.filter((line, i) => i === 0 || !line.includes('main-world.js'));
-    return filtered.join('\n');
+    try {
+      const err = new Error();
+      const lines = (err.stack || '').split('\n');
+      const filtered = lines.filter((line, i) => i === 0 || !line.includes('main-world.js'));
+      return filtered.join('\n');
+    } catch {
+      // Dev tooling this extension targets (Vite/HMR, Zone.js, Sentry-style
+      // long-stack-trace libraries) commonly patches Error.prepareStackTrace
+      // or Error.prototype.stack. This now runs synchronously ahead of the
+      // real fetch()/XMLHttpRequest.send() call, so a throw here must never
+      // propagate — it would make the wrapped fetch() throw synchronously,
+      // violating its contract, and prevent the real network call from ever
+      // firing.
+      return '';
+    }
   }
 
   console.error = function (...args) {

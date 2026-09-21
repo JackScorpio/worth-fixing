@@ -1,6 +1,7 @@
 // src/worker.js
 import { computeFingerprint } from './lib/fingerprint.js';
 import { sourceFileFromStack } from './lib/stack.js';
+import { applyDedupeIncrement } from './lib/dedupe.js';
 
 const IGNORE_STACK_FILES = ['main-world.js'];
 
@@ -97,17 +98,9 @@ async function incrementDedupeCount(fingerprint) {
 
 async function incrementDedupeCountUnsafe(fingerprint) {
   const { dedupeCounts = {} } = await chrome.storage.session.get('dedupeCounts');
-  if (!(fingerprint in dedupeCounts)) {
-    const keys = Object.keys(dedupeCounts);
-    if (keys.length >= DEDUPE_COUNT_CAP) {
-      // Evict the oldest-inserted entry (object key order is insertion
-      // order for string keys) to keep the map bounded.
-      delete dedupeCounts[keys[0]];
-    }
-  }
-  dedupeCounts[fingerprint] = (dedupeCounts[fingerprint] || 0) + 1;
-  await chrome.storage.session.set({ dedupeCounts });
-  return dedupeCounts[fingerprint];
+  const updated = applyDedupeIncrement(dedupeCounts, fingerprint, DEDUPE_COUNT_CAP);
+  await chrome.storage.session.set({ dedupeCounts: updated });
+  return updated[fingerprint];
 }
 
 const SCRIPT_ID_PREFIX = 'web-error-monitor';
