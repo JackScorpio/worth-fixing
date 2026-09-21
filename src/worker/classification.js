@@ -14,6 +14,7 @@ import {
   bucketPriorityColor,
   applySilentBugPromotion,
 } from '../lib/jev.js';
+import { recordUsage } from './usage.js';
 
 const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const JEV_MODEL = 'jev-1.13.0';
@@ -198,6 +199,10 @@ async function classifyWithRetry(record, jevApiKey) {
       const priority = answers.priority ? parseScoreAnswer(answers.priority) : null;
       const origin = answers.origin ? parseChoiceAnswer(answers.origin) : null;
       const silentBug = answers.silent_bug ? parseNoulAnswer(answers.silent_bug) : null;
+      // Fire-and-forget, same as the classification itself never blocking
+      // on a cache write it doesn't need to wait for. recordUsage no-ops
+      // silently if `usage` is missing/malformed (see usage.js).
+      if (json.usage) recordUsage(json.usage);
       return {
         priority,
         origin,
