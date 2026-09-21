@@ -10,6 +10,7 @@
   let els = null; // { pill, countRed, countAmber, countGrey, panel, list }
   let groups = new Map(); // fingerprint -> { record, count }
   let collapsed = true;
+  let mutedSectionExpanded = false;
   let currentOrigin = null;
 
   function truncate(message) {
@@ -223,13 +224,14 @@
 
     const list = document.createElement('div');
     list.className = 'wem-muted-list';
-    list.hidden = true;
+    list.hidden = !mutedSectionExpanded;
     for (const [fingerprint, entry] of mutedEntries) {
       list.appendChild(buildRow(fingerprint, entry));
     }
 
     toggle.addEventListener('click', () => {
-      list.hidden = !list.hidden;
+      mutedSectionExpanded = !mutedSectionExpanded;
+      list.hidden = !mutedSectionExpanded;
     });
 
     section.append(toggle, list);
@@ -281,6 +283,7 @@
     shadowRoot = null;
     els = null;
     groups = new Map();
+    mutedSectionExpanded = false;
     window.__webErrorMonitorHudInstalled = false;
   }
 
