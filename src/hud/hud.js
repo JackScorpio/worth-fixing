@@ -94,6 +94,7 @@
     for (const [tab, btn] of Object.entries(tabButtons)) {
       btn.type = 'button';
       btn.className = 'wem-tab';
+      btn.setAttribute('role', 'tab');
       btn.addEventListener('click', () => setActiveTab(tab));
       tabsEl.appendChild(btn);
     }
@@ -156,7 +157,9 @@
   function applyActiveTabStyle() {
     if (!els) return;
     for (const [tab, btn] of Object.entries(els.tabButtons)) {
-      btn.classList.toggle('wem-tab-active', tab === activeTab);
+      const isActive = tab === activeTab;
+      btn.classList.toggle('wem-tab-active', isActive);
+      btn.setAttribute('aria-selected', String(isActive));
     }
   }
 
@@ -201,7 +204,8 @@
     }
     if (classification.origin) {
       const { choice, confidence } = classification.origin;
-      rows.push(['Origin', `${choice.replace(/_/g, ' ')} (${Math.round((confidence ?? 0) * 100)}% confidence)`]);
+      const choiceLabel = typeof choice === 'string' ? choice.replace(/_/g, ' ') : String(choice ?? 'unknown');
+      rows.push(['Origin', `${choiceLabel} (${Math.round((confidence ?? 0) * 100)}% confidence)`]);
     }
     if (classification.silentBug) {
       rows.push(['Silent bug risk', `${Math.round(classification.silentBug.probability * 100)}%`]);
@@ -299,12 +303,25 @@
     return entries.filter(([, entry]) => needsAttention(entry.record));
   }
 
+  const EMPTY_TAB_MESSAGES = {
+    needsAttention: 'Nothing needs attention right now.',
+    all: 'No errors captured yet.',
+    muted: 'Nothing muted yet.',
+  };
+
   function renderList() {
     els.list.replaceChildren();
     const entries = Array.from(groups.entries()).sort(
       (a, b) => b[1].record.timestamp - a[1].record.timestamp
     );
     const visibleEntries = filterForActiveTab(entries);
+    if (visibleEntries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'wem-empty';
+      empty.textContent = EMPTY_TAB_MESSAGES[activeTab] || 'Nothing here.';
+      els.list.appendChild(empty);
+      return;
+    }
     for (const [fingerprint, entry] of visibleEntries) {
       els.list.appendChild(buildRow(fingerprint, entry));
     }

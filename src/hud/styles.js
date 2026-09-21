@@ -132,6 +132,12 @@ window.__webErrorMonitorHudCss = `
     font-weight: 600;
     border-bottom-color: #7c3aed;
   }
+  .wem-empty {
+    padding: 20px 10px;
+    text-align: center;
+    opacity: 0.5;
+    font-size: 11px;
+  }
   .wem-jev-detail {
     display: flex;
     flex-direction: column;

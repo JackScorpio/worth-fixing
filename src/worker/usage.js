@@ -70,7 +70,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .then(sendResponse)
     .catch((error) => {
       console.error('[web-error-monitor] failed to read usage summary', error);
-      sendResponse({ totalCostUsd: 0, totalInputTokens: 0, costLabel: '$0.0000', tokenLabel: '0 tok' });
+      sendResponse(summarize([]));
     });
   return true; // keep the channel open for the async sendResponse above
 });
