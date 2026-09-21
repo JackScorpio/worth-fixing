@@ -4,6 +4,20 @@ import { sourceFileFromStack } from './lib/stack.js';
 
 const IGNORE_STACK_FILES = ['main-world.js'];
 
+// Synchronously-readable cache of the enabledOrigins map, kept in sync with
+// chrome.storage.local. This exists so chrome.action.onClicked's listener can
+// decide enable-vs-disable with zero `await`s: MV3 service workers drop the
+// click event's transient user gesture the moment the handler yields to the
+// event loop even once, so any async pre-check (e.g. a storage.local.get)
+// before calling chrome.permissions.request(...) makes that call throw
+// "This function must be called during a user gesture". Populating this
+// cache at worker startup (below) means it's ready well before a real user
+// click can arrive.
+let enabledOriginsCache = {};
+chrome.storage.local.get('enabledOrigins').then(({ enabledOrigins }) => {
+  enabledOriginsCache = enabledOrigins || {};
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== 'CAPTURE_EVENT') return false;
   handleCaptureEvent(message)
@@ -69,7 +83,7 @@ async function incrementDedupeCountUnsafe(fingerprint) {
 
 const SCRIPT_ID_PREFIX = 'web-error-monitor';
 
-chrome.action.onClicked.addListener(async (tab) => {
+chrome.action.onClicked.addListener((tab) => {
   if (!tab.id || !tab.url) return;
   let origin;
   try {
@@ -78,12 +92,14 @@ chrome.action.onClicked.addListener(async (tab) => {
     return; // chrome:// pages, etc. can't be targeted
   }
 
-  const enabled = await isOriginEnabled(origin);
-  if (enabled) {
-    await disableOrigin(origin, tab.id);
-  } else {
-    await enableOrigin(origin, tab.id);
-  }
+  // Synchronous read (no await) so this listener reaches enableOrigin's
+  // chrome.permissions.request(...) call without ever yielding to the event
+  // loop first — that's what keeps the click's transient user gesture alive.
+  const enabled = !!enabledOriginsCache[origin];
+  const result = enabled ? disableOrigin(origin, tab.id) : enableOrigin(origin, tab.id);
+  result.catch((error) => {
+    console.error(`[web-error-monitor] failed to toggle ${origin}`, error);
+  });
 });
 
 async function isOriginEnabled(origin) {
@@ -95,6 +111,7 @@ async function setOriginEnabled(origin, value) {
   const { enabledOrigins = {} } = await chrome.storage.local.get('enabledOrigins');
   enabledOrigins[origin] = value;
   await chrome.storage.local.set({ enabledOrigins });
+  enabledOriginsCache = enabledOrigins;
 }
 
 function originPattern(origin) {
@@ -183,12 +200,20 @@ async function refreshBadgeForTab(tabId, url) {
   }
   await chrome.action.setBadgeText({ tabId, text: enabled ? 'ON' : '' });
   await chrome.action.setBadgeBackgroundColor({ tabId, color: '#2e7d32' });
-  await chrome.action.setIcon({
-    tabId,
-    path: enabled
-      ? { 16: 'icons/icon-on-16.png', 48: 'icons/icon-on-48.png', 128: 'icons/icon-on-128.png' }
-      : { 16: 'icons/icon-off-16.png', 48: 'icons/icon-off-48.png', 128: 'icons/icon-off-128.png' },
-  });
+  try {
+    await chrome.action.setIcon({
+      tabId,
+      path: enabled
+        ? { 16: 'icons/icon-on-16.png', 48: 'icons/icon-on-48.png', 128: 'icons/icon-on-128.png' }
+        : { 16: 'icons/icon-off-16.png', 48: 'icons/icon-off-48.png', 128: 'icons/icon-off-128.png' },
+    });
+  } catch (error) {
+    // Known MV3 timing quirk: fetching extension-local icon resources can
+    // transiently fail right after the service worker wakes from idle. The
+    // badge text set above remains the reliable ON/OFF signal, so this is
+    // non-critical/cosmetic — just avoid unhandled-rejection console spam.
+    console.warn(`[web-error-monitor] failed to set icon for tab ${tabId}`, error);
+  }
 }
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
