@@ -57,6 +57,20 @@ window.__webErrorMonitorHudCss = `
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     font-weight: 600;
   }
+  .wem-header-left,
+  .wem-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .wem-usage-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: #fff;
+  }
   .wem-panel-header button {
     background: none;
     border: none;

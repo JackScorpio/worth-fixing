@@ -53,6 +53,8 @@
       window.__webErrorMonitorHud.render(message.record);
     } else if (message.type === 'CLASSIFICATION_UPDATE') {
       window.__webErrorMonitorHud.updateClassification(message.fingerprint, message.classification);
+    } else if (message.type === 'USAGE_UPDATE') {
+      window.__webErrorMonitorHud.updateUsage(message.costLabel, message.tokenLabel);
     }
   });
 })();

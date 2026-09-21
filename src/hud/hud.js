@@ -65,6 +65,12 @@
     header.className = 'wem-panel-header';
     const title = document.createElement('span');
     title.textContent = 'Web Error Monitor';
+    const usageBadge = document.createElement('span');
+    usageBadge.className = 'wem-usage-badge';
+    usageBadge.textContent = '$0.0000 · 0 tok';
+    const headerLeft = document.createElement('div');
+    headerLeft.className = 'wem-header-left';
+    headerLeft.append(title, usageBadge);
     const clearBtn = document.createElement('button');
     clearBtn.type = 'button';
     clearBtn.textContent = 'Clear';
@@ -73,7 +79,10 @@
     collapseBtn.type = 'button';
     collapseBtn.textContent = '×';
     collapseBtn.addEventListener('click', () => setCollapsed(true));
-    header.append(title, clearBtn, collapseBtn);
+    const headerRight = document.createElement('div');
+    headerRight.className = 'wem-header-right';
+    headerRight.append(clearBtn, collapseBtn);
+    header.append(headerLeft, headerRight);
 
     const tabsEl = document.createElement('div');
     tabsEl.className = 'wem-tabs';
@@ -117,7 +126,7 @@
     shadowRoot.appendChild(root);
     document.documentElement.appendChild(hostEl);
 
-    els = { pill, countRed, countAmber, countGrey, panel, list, tabButtons };
+    els = { pill, countRed, countAmber, countGrey, panel, list, tabButtons, usageBadge };
   }
 
   function applyCollapsed(value) {
@@ -281,6 +290,11 @@
     renderList();
   }
 
+  function updateUsage(costLabel, tokenLabel) {
+    if (!els) return;
+    els.usageBadge.textContent = `${costLabel} · ${tokenLabel}`;
+  }
+
   function clear() {
     groups = new Map();
     renderCounts();
@@ -297,6 +311,19 @@
       const originState = hudState[origin];
       applyCollapsed(originState ? originState.collapsed : true);
     });
+    // Cost is global (all origins), so a HUD opened on any page needs the
+    // running total that may already exist from other tabs — fetched once
+    // here, kept current afterward by the USAGE_UPDATE broadcast.
+    chrome.runtime
+      .sendMessage({ type: 'GET_USAGE' })
+      .then((summary) => {
+        if (summary) updateUsage(summary.costLabel, summary.tokenLabel);
+      })
+      .catch(() => {
+        // Service worker may be asleep or the extension was reloaded; the
+        // badge keeps its "$0.0000 · 0 tok" initial text until the next
+        // USAGE_UPDATE broadcast catches it up.
+      });
   }
 
   function teardown() {
@@ -311,5 +338,5 @@
     window.__webErrorMonitorHudInstalled = false;
   }
 
-  window.__webErrorMonitorHud = { init, render, clear, teardown, updateClassification };
+  window.__webErrorMonitorHud = { init, render, clear, teardown, updateClassification, updateUsage };
 })();
