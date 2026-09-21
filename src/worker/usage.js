@@ -3,7 +3,13 @@
 // Global (all-origins), session-scoped tracking of Jev API spend. See
 // docs/superpowers/specs/2026-09-21-web-error-monitor-phase3b-dashboard-v1-design.md.
 
-import { computeCostUsd, sumInputTokens, formatCostUsd, formatTokenCount } from '../lib/usage.js';
+import {
+  computeCostUsd,
+  sumInputTokens,
+  formatCostUsd,
+  formatTokenCount,
+  bucketUsageByHour,
+} from '../lib/usage.js';
 
 // Module-scope mutex serializing read-modify-write access to the
 // `usageLog` key in chrome.storage.session. Mirrors classification.js's
@@ -43,6 +49,7 @@ function summarize(usageLog) {
     totalInputTokens,
     costLabel: formatCostUsd(totalCostUsd),
     tokenLabel: formatTokenCount(totalInputTokens),
+    hourlyBuckets: bucketUsageByHour(usageLog),
   };
 }
 

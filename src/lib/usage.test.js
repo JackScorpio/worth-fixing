@@ -1,6 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeCostUsd, sumInputTokens, formatCostUsd, formatTokenCount } from './usage.js';
+import {
+  computeCostUsd,
+  sumInputTokens,
+  formatCostUsd,
+  formatTokenCount,
+  bucketUsageByHour,
+} from './usage.js';
+
+const HOUR = 60 * 60 * 1000;
+
+test('bucketUsageByHour returns one zero bucket per hour for an empty log', () => {
+  assert.deepEqual(bucketUsageByHour([], 6, 1_000_000_000), [0, 0, 0, 0, 0, 0]);
+});
+
+test('bucketUsageByHour puts entries in the right hour, oldest bucket first', () => {
+  const now = 10 * HOUR;
+  const log = [
+    { timestamp: now - 10 * 60 * 1000, inputTokens: 1_000_000 }, // 10 min ago -> last bucket
+    { timestamp: now - 2.5 * HOUR, inputTokens: 2_000_000 }, // 2.5h ago -> bucket index 3 of 6
+  ];
+  const buckets = bucketUsageByHour(log, 6, now);
+  assert.equal(buckets.length, 6);
+  assert.ok(Math.abs(buckets[5] - 0.042) < 1e-9, `last bucket ${buckets[5]}`);
+  assert.ok(Math.abs(buckets[3] - 0.084) < 1e-9, `bucket 3 ${buckets[3]}`);
+  assert.deepEqual([buckets[0], buckets[1], buckets[2], buckets[4]], [0, 0, 0, 0]);
+});
+
+test('bucketUsageByHour ignores entries older than the window or in the future', () => {
+  const now = 10 * HOUR;
+  const log = [
+    { timestamp: now - 6 * HOUR - 1, inputTokens: 1_000_000 }, // just outside
+    { timestamp: now + 1000, inputTokens: 1_000_000 }, // clock skew, future
+  ];
+  assert.deepEqual(bucketUsageByHour(log, 6, now), [0, 0, 0, 0, 0, 0]);
+});
 
 test('computeCostUsd is zero for zero tokens', () => {
   assert.equal(computeCostUsd(0), 0);

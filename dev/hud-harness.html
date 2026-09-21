@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>HUD harness</title>
+  <style>
+    body { margin: 0; min-height: 100vh; background: #f4f4f7; font-family: -apple-system, sans-serif; color: #333; padding: 24px; }
+    p { max-width: 520px; font-size: 14px; line-height: 1.5; }
+    button { margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <p>
+    Dev-only harness: loads <code>src/hud/*.js</code> with a stubbed <code>chrome</code> and
+    feeds the HUD sample classified errors. Serve the repo root
+    (<code>python3 -m http.server 8001</code>) and open <code>/dev/hud-harness.html</code>.
+    Nothing here talks to Jev.
+  </p>
+  <button id="more">Add another error</button>
+  <button id="usage">Simulate USAGE_UPDATE</button>
+
+  <script>
+    // Minimal chrome.* stub — just enough for hud.js's init()/setCollapsed().
+    const localStore = {};
+    const usageSummary = {
+      totalCostUsd: 0.0009, totalInputTokens: 20600,
+      costLabel: '$0.0009', tokenLabel: '20.6k tok',
+      hourlyBuckets: [0.00005, 0.0001, 0.00008, 0.00025, 0.00017, 0.00035],
+    };
+    window.chrome = {
+      storage: {
+        local: {
+          get: async (k) => (k === 'hudState' ? { hudState: { 'http://localhost:8001': { collapsed: false } } } : {}),
+          set: async (o) => Object.assign(localStore, o),
+        },
+        session: { get: async () => ({}), set: async () => {} },
+      },
+      runtime: {
+        sendMessage: async (m) => (m.type === 'GET_USAGE' ? usageSummary : undefined),
+        onMessage: { addListener() {} },
+      },
+    };
+  </script>
+  <script src="/src/hud/styles.js"></script>
+  <script src="/src/hud/charts.js"></script>
+  <script src="/src/hud/hud.js"></script>
+  <script>
+    const hud = window.__webErrorMonitorHud;
+    hud.init('http://localhost:8001');
+
+    const LEGEND = {
+      0: 'Cosmetic or informational, safe to ignore',
+      1: 'Real issue but non-blocking, worth fixing before merge',
+      2: 'Breaks user-visible functionality, fix now',
+    };
+    const cls = (score, conf, origin, oconf, silent, color, muted = false) => ({
+      priority: { score, legend: LEGEND, confidence: conf },
+      origin: { choice: origin, confidence: oconf },
+      silentBug: { probability: silent },
+      displayColor: color,
+      muted,
+      classifiedAt: Date.now(),
+    });
+    const rec = (fp, kind, message, sourceFile, classification, ageMs = 0) => ({
+      id: fp, fingerprint: fp, kind, message, sourceFile, classification,
+      stack: `Error: ${message}\n    at onclick (http://localhost:8001/${sourceFile})`,
+      origin: 'http://localhost:8001', url: 'http://localhost:8001/app', timestamp: Date.now() - ageMs,
+    });
+
+    const samples = [
+      rec('fp1', 'uncaught', "Uncaught TypeError: Failed to execute 'observe' on 'IntersectionObserver'",
+        's/js/search/userActivity.a297aede730d7fe6e4f6.cache.js:1:29142', cls(1.9, 0.49, 'app_code', 0.98, 0.62, 'red'), 60000),
+      rec('fp2', 'network', 'Error: Send /chart/chartmvc/matching/sync/rematching failed with 500',
+        's/js/matching-ui/packages/rematching-component/web-component/rematching-component.es.83.js:10369:26',
+        cls(1.8, 0.88, 'backend', 0.91, 0.12, 'red'), 5000),
+      rec('fp3', 'console.error', 'Error fetching progress: Error: Send /chart/chartmvc/matching/sync/rematching',
+        's/js/matching-ui/packages/rematching-component/web-component/rematching-component.es.83.js:10444:21',
+        cls(1.1, 0.71, 'app_code', 0.8, 0.2, 'amber'), 2000),
+      rec('fp4', 'network', 'POST https://analytics.google.com/g/collect?v=2&tid=G-1YYVBY0BK1 -> 0',
+        'gtag/js?id=G-1YYVBY0BK1:246:391', cls(1.0, 0.64, 'third_party', 0.77, 0.05, 'amber'), 90000),
+      rec('fp5', 'console.warn', 'Warning: Each child in a list should have a unique "key" prop.',
+        'react-dom.development.js:86:30', cls(0.2, 0.9, 'framework_noise', 0.95, 0.03, 'grey', true), 1000),
+      rec('fp6', 'console.error', 'Boom: something just happened, not classified yet',
+        'test-page.html:27:15', null, 500),
+    ];
+    for (const r of samples) hud.render(r);
+    // duplicate occurrence -> ×2
+    hud.render(samples[1]);
+
+    let n = 7;
+    document.getElementById('more').onclick = () => {
+      hud.render(rec(`fp${n}`, 'uncaught', `Uncaught ReferenceError: thing${n} is not defined`, `app-${n}.js:1:1`, null));
+      const fp = `fp${n}`; n++;
+      setTimeout(() => hud.updateClassification(fp, cls(1.7, 0.83, 'app_code', 0.9, 0.7, 'red')), 1200);
+    };
+    document.getElementById('usage').onclick = () => {
+      usageSummary.hourlyBuckets = usageSummary.hourlyBuckets.map((v, i) => v + (i === 5 ? 0.0002 : 0));
+      hud.updateUsage('$0.0011', '26.1k tok', usageSummary.hourlyBuckets);
+    };
+  </script>
+</body>
+</html>

@@ -90,7 +90,7 @@ async function enableOrigin(origin, tabId) {
         {
           id: contentId,
           matches: [pattern],
-          js: ['src/hud/styles.js', 'src/hud/hud.js', 'src/content.js'],
+          js: ['src/hud/styles.js', 'src/hud/charts.js', 'src/hud/hud.js', 'src/content.js'],
           runAt: 'document_start',
         },
       ]);
@@ -179,8 +179,12 @@ async function refreshBadgeForTab(tabId, url) {
     await chrome.action.setIcon({
       tabId,
       path: enabled
-        ? { 16: 'icons/icon-on-16.png', 48: 'icons/icon-on-48.png', 128: 'icons/icon-on-128.png' }
-        : { 16: 'icons/icon-off-16.png', 48: 'icons/icon-off-48.png', 128: 'icons/icon-off-128.png' },
+        // Leading slash = extension root. Without it Chrome resolves the path
+        // relative to this service worker's own directory (src/), producing
+        // src/icons/... which doesn't exist — the "Failed to fetch" noise
+        // seen on every toggle came from exactly that.
+        ? { 16: '/icons/icon-on-16.png', 48: '/icons/icon-on-48.png', 128: '/icons/icon-on-128.png' }
+        : { 16: '/icons/icon-off-16.png', 48: '/icons/icon-off-48.png', 128: '/icons/icon-off-128.png' },
     });
   } catch (error) {
     // Known MV3 timing quirk: fetching extension-local icon resources can

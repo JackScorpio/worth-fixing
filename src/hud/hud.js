@@ -12,6 +12,7 @@
   let collapsed = true;
   let activeTab = 'needsAttention'; // 'needsAttention' | 'all' | 'muted'
   let currentOrigin = null;
+  let latestHourlyBuckets = []; // from USAGE_UPDATE / GET_USAGE, drawn by the spend chart
 
   function truncate(message) {
     if (!message) return '';
@@ -99,10 +100,13 @@
       tabsEl.appendChild(btn);
     }
 
+    const chartStrip = document.createElement('div');
+    chartStrip.className = 'wem-chart-strip';
+
     const list = document.createElement('div');
     list.className = 'wem-list';
 
-    panel.append(header, tabsEl, list);
+    panel.append(header, chartStrip, tabsEl, list);
 
     const pill = document.createElement('button');
     pill.type = 'button';
@@ -127,7 +131,7 @@
     shadowRoot.appendChild(root);
     document.documentElement.appendChild(hostEl);
 
-    els = { pill, countRed, countAmber, countGrey, panel, list, tabButtons, usageBadge };
+    els = { pill, countRed, countAmber, countGrey, panel, list, tabButtons, usageBadge, chartStrip };
   }
 
   function applyCollapsed(value) {
@@ -229,32 +233,116 @@
     return container;
   }
 
+  const SEVERITY_RANK = { red: 0, amber: 1, grey: 2 };
+
+  function severityRank(record) {
+    return SEVERITY_RANK[severityColor(record)] ?? 2;
+  }
+
+  // Jev's priority legend entries read like "Breaks user-visible
+  // functionality, fix now" — the clause after the last comma is the
+  // actionable part, and short enough for a chip.
+  function priorityChipLabel(record) {
+    const classification = record.classification;
+    if (!classification) return 'classifying…';
+    if (classification.failed) return 'unclassified';
+    const priority = classification.priority;
+    if (!priority) return 'unrated';
+    const legendText = priority.legend && priority.legend[Math.round(priority.score)];
+    if (typeof legendText === 'string' && legendText.trim()) {
+      const parts = legendText.split(',');
+      return parts[parts.length - 1].trim();
+    }
+    return `score ${priority.score}`;
+  }
+
+  // "gtag/js?id=G-1YYVBY0BK1:246:391" -> "js:246:391";
+  // "s/js/…/rematching-component.es.83.js:10369:26" -> "rematching-component.es.83.js:10369:26".
+  // The full path stays available in the expanded detail.
+  function shortSource(sourceFile) {
+    if (!sourceFile) return '';
+    return sourceFile.replace(/\?[^:]*(?=:\d+:\d+$)/, '').split('/').pop();
+  }
+
   function buildRow(fingerprint, entry) {
     const { record, count, expanded } = entry;
+    const color = severityColor(record);
+    const classification =
+      record.classification && !record.classification.failed ? record.classification : null;
+
     const row = document.createElement('div');
-    row.className = 'wem-row';
+    row.className = `wem-row wem-card wem-card-${color}`;
     row.dataset.fingerprint = fingerprint;
 
     const summary = document.createElement('div');
     summary.className = 'wem-row-summary';
-    const dot = document.createElement('span');
-    dot.className = `wem-dot wem-dot-${severityColor(record)}`;
-    const message = document.createElement('span');
-    message.className = 'wem-row-message';
-    message.textContent = truncate(record.message);
+
+    const top = document.createElement('div');
+    top.className = 'wem-card-top';
+    const chip = document.createElement('span');
+    chip.className = `wem-chip wem-chip-${color}`;
+    if (!record.classification) chip.classList.add('wem-chip-pending');
+    chip.textContent = priorityChipLabel(record);
+    top.appendChild(chip);
+
+    const confidence = classification?.priority?.confidence;
+    if (typeof confidence === 'number') {
+      const pct = Math.round(confidence * 100);
+      const conf = document.createElement('span');
+      conf.className = 'wem-conf';
+      conf.title = `Jev is ${pct}% confident in this priority`;
+      const meter = document.createElement('b');
+      meter.style.setProperty('--w', `${pct}%`);
+      const confText = document.createElement('span');
+      confText.textContent = `${pct}%`;
+      conf.append(meter, confText);
+      top.appendChild(conf);
+    }
+
     const countEl = document.createElement('span');
     countEl.className = 'wem-row-count';
     countEl.textContent = `×${count}`;
-    summary.append(dot, message, countEl);
+    top.appendChild(countEl);
 
-    const source = document.createElement('div');
+    const message = document.createElement('div');
+    message.className = 'wem-row-message';
+    message.textContent = truncate(record.message);
+
+    const meta = document.createElement('div');
+    meta.className = 'wem-card-meta';
+    const originChoice = classification?.origin?.choice;
+    if (typeof originChoice === 'string') {
+      const origin = document.createElement('span');
+      origin.className = 'wem-chip wem-chip-origin';
+      origin.textContent = originChoice.replace(/_/g, ' ');
+      meta.appendChild(origin);
+    }
+    const silentProb = classification?.silentBug?.probability;
+    if (typeof silentProb === 'number' && silentProb > 0.5) {
+      const silent = document.createElement('span');
+      silent.className = 'wem-chip wem-chip-silent';
+      silent.textContent = `⚠ silent ${Math.round(silentProb * 100)}%`;
+      silent.title = 'Jev thinks this may misbehave without any visible symptom';
+      meta.appendChild(silent);
+    }
+    const source = document.createElement('span');
     source.className = 'wem-row-source';
-    source.textContent = record.sourceFile || '';
+    source.textContent = shortSource(record.sourceFile);
+    source.title = record.sourceFile || '';
+    meta.appendChild(source);
+
+    summary.append(top, message, meta);
 
     const detail = document.createElement('div');
     detail.className = 'wem-row-detail';
     detail.hidden = !expanded;
     const detailChildren = [];
+    if (record.sourceFile && record.sourceFile !== shortSource(record.sourceFile)) {
+      const fullSource = document.createElement('div');
+      fullSource.className = 'wem-row-fullsource';
+      fullSource.textContent = record.sourceFile;
+      detailChildren.push(fullSource);
+    }
     // The row summary truncates the message to MAX_MESSAGE_LENGTH. Many
     // real console.warn/console.error calls log a message plus a data
     // object (e.g. `console.warn('Unknown type', {status, uuid, ...})`),
@@ -293,7 +381,7 @@
       detail.hidden = !entry.expanded;
     });
 
-    row.append(summary, source, detail);
+    row.append(summary, detail);
     return row;
   }
 
@@ -311,8 +399,12 @@
 
   function renderList() {
     els.list.replaceChildren();
+    // Worst first, newest as the tiebreaker — so the thing to look at is at
+    // the top, not just whatever happened most recently.
     const entries = Array.from(groups.entries()).sort(
-      (a, b) => b[1].record.timestamp - a[1].record.timestamp
+      (a, b) =>
+        severityRank(a[1].record) - severityRank(b[1].record) ||
+        b[1].record.timestamp - a[1].record.timestamp
     );
     const visibleEntries = filterForActiveTab(entries);
     if (visibleEntries.length === 0) {
@@ -337,6 +429,7 @@
     });
     renderCounts();
     renderList();
+    renderCharts();
   }
 
   function updateClassification(fingerprint, classification) {
@@ -346,17 +439,43 @@
     entry.record = { ...entry.record, classification };
     renderCounts();
     renderList();
+    renderCharts();
   }
 
-  function updateUsage(costLabel, tokenLabel) {
+  function computeOriginCounts() {
+    const counts = {};
+    for (const { record } of groups.values()) {
+      const choice = record.classification?.origin?.choice;
+      if (typeof choice !== 'string') continue;
+      counts[choice] = (counts[choice] || 0) + 1;
+    }
+    return counts;
+  }
+
+  // charts.js is a sibling classic script registered ahead of this one; if
+  // it somehow isn't there, the strip just stays empty rather than throwing.
+  function renderCharts() {
+    if (!els) return;
+    const charts = window.__webErrorMonitorCharts;
+    if (!charts) return;
+    els.chartStrip.replaceChildren(
+      charts.buildOriginChart(computeOriginCounts()),
+      charts.buildSpendChart(latestHourlyBuckets)
+    );
+  }
+
+  function updateUsage(costLabel, tokenLabel, hourlyBuckets) {
     if (!els) return;
     els.usageBadge.textContent = `${costLabel} · ${tokenLabel}`;
+    if (Array.isArray(hourlyBuckets)) latestHourlyBuckets = hourlyBuckets;
+    renderCharts();
   }
 
   function clear() {
     groups = new Map();
     renderCounts();
     renderList();
+    renderCharts();
   }
 
   function init(origin) {
@@ -365,6 +484,7 @@
     buildDom();
     applyActiveTabStyle();
     renderCounts(); // paints "Needs attention (0)" etc. immediately, before any error arrives
+    renderCharts();
     chrome.storage.local.get('hudState').then(({ hudState = {} }) => {
       const originState = hudState[origin];
       applyCollapsed(originState ? originState.collapsed : true);
@@ -375,7 +495,7 @@
     chrome.runtime
       .sendMessage({ type: 'GET_USAGE' })
       .then((summary) => {
-        if (summary) updateUsage(summary.costLabel, summary.tokenLabel);
+        if (summary) updateUsage(summary.costLabel, summary.tokenLabel, summary.hourlyBuckets);
       })
       .catch(() => {
         // Service worker may be asleep or the extension was reloaded; the
@@ -393,6 +513,7 @@
     els = null;
     groups = new Map();
     activeTab = 'needsAttention';
+    latestHourlyBuckets = [];
     window.__webErrorMonitorHudInstalled = false;
   }
 
