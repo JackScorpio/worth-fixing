@@ -142,9 +142,26 @@
     const detail = document.createElement('div');
     detail.className = 'wem-row-detail';
     detail.hidden = !expanded;
+    const detailChildren = [];
+    // The row summary truncates the message to MAX_MESSAGE_LENGTH. Many
+    // real console.warn/console.error calls log a message plus a data
+    // object (e.g. `console.warn('Unknown type', {status, uuid, ...})`),
+    // and stringifyArgs (main-world.js) concatenates all of that into one
+    // long message string — truncation can hide the actual diagnostic
+    // payload entirely, with no other place in the UI to see it. Show the
+    // full message on expand whenever it was actually truncated; skip it
+    // when the summary already shows the whole thing, to avoid repeating
+    // short messages twice.
+    if (record.message && record.message.length > MAX_MESSAGE_LENGTH) {
+      const fullMessage = document.createElement('pre');
+      fullMessage.className = 'wem-row-full-message';
+      fullMessage.textContent = record.message;
+      detailChildren.push(fullMessage);
+    }
     const stack = document.createElement('pre');
     stack.className = 'wem-row-stack';
     stack.textContent = record.stack || '(no stack available)';
+    detailChildren.push(stack);
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'wem-copy-btn';
@@ -154,7 +171,8 @@
       const text = `${record.message}\n\n${record.stack || ''}\n\n${record.url}`;
       navigator.clipboard.writeText(text).catch(() => {});
     });
-    detail.append(stack, copyBtn);
+    detailChildren.push(copyBtn);
+    detail.append(...detailChildren);
 
     summary.addEventListener('click', () => {
       entry.expanded = !entry.expanded;

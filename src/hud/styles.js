@@ -96,6 +96,17 @@ window.__webErrorMonitorHudCss = `
   .wem-row-detail {
     margin-top: 6px;
   }
+  .wem-row-full-message {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 6px;
+    border-radius: 4px;
+    max-height: 160px;
+    overflow-y: auto;
+    font-size: 11px;
+    margin: 0 0 6px 0;
+  }
   .wem-row-stack {
     white-space: pre-wrap;
     word-break: break-word;
