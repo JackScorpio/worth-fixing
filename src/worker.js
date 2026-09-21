@@ -20,7 +20,7 @@ chrome.storage.local.get('enabledOrigins').then(({ enabledOrigins }) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== 'CAPTURE_EVENT') return false;
-  handleCaptureEvent(message)
+  handleCaptureEvent(message, sender)
     .then(() => sendResponse({ ok: true }))
     .catch((error) => {
       console.error('[web-error-monitor] failed to handle capture event', error);
@@ -29,8 +29,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // keep the message channel open for the async response
 });
 
-async function handleCaptureEvent(message) {
-  const { payload, pageUrl, origin } = message;
+async function handleCaptureEvent(message, sender) {
+  // Gate on enabled state here too: injection alone doesn't guarantee "off",
+  // since disableOrigin only tears down the one tab it was invoked on. A
+  // sibling tab on the same origin that was already injected keeps sending
+  // CAPTURE_EVENT messages until it's reloaded, so drop anything from an
+  // origin that isn't currently enabled. Use sender.origin (set by Chrome
+  // from the actual sending frame) rather than the page-self-reported
+  // message.origin field, since the latter is just window.location.origin
+  // read inside the page's own content-script bridge and could be spoofed by
+  // a compromised/malicious page.
+  const senderOrigin = sender?.origin;
+  if (!senderOrigin || !(await isOriginEnabled(senderOrigin))) {
+    return;
+  }
+
+  const { payload, pageUrl } = message;
   const sourceFile = sourceFileFromStack(payload.stack, { ignoreFiles: IGNORE_STACK_FILES });
   const fingerprint = await computeFingerprint({
     kind: payload.kind,
@@ -46,7 +60,7 @@ async function handleCaptureEvent(message) {
     message: payload.message,
     stack: payload.stack,
     sourceFile,
-    origin,
+    origin: senderOrigin,
     url: pageUrl,
     timestamp: payload.timestamp,
     request: payload.request,
@@ -160,10 +174,19 @@ async function enableOrigin(origin, tabId) {
       registeredJustNow = true;
     }
 
-    // The page already loaded before permission was granted, so inject once
-    // immediately in addition to the persistent registration above.
-    await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['src/main-world.js'] });
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
+    if (registeredJustNow) {
+      // The page already loaded before permission was granted, so inject once
+      // immediately in addition to the persistent registration above. Only do
+      // this when THIS call is the one that freshly registered the scripts:
+      // if they were already registered (stale-cache race, or re-enabling
+      // without a reload), the current page already has both scripts running
+      // from its original document_start injection, and re-injecting content.js
+      // here would install a second, un-tearable-down isolated-world listener
+      // (content.js's own re-injection guard now protects against that too,
+      // but skipping the redundant injection is the more correct fix).
+      await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['src/main-world.js'] });
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
+    }
   } catch (error) {
     console.error(`[web-error-monitor] failed to enable ${origin}`, error);
 
