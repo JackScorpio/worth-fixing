@@ -70,6 +70,29 @@ async function handleCaptureEvent(message, sender) {
 
   const count = await incrementDedupeCount(fingerprint);
   console.log(`[web-error-monitor] ${record.kind} (x${count}) fp=${fingerprint}`, record);
+
+  const classification = await getClassification(fingerprint);
+  const tabId = sender.tab?.id;
+  if (tabId) {
+    chrome.tabs
+      .sendMessage(tabId, { type: 'RECORD', record: { ...record, classification } })
+      .catch(() => {
+        // The HUD may not be initialized yet (e.g. this event fired before
+        // content.js finished loading), or the tab may have navigated away.
+        // Dropping the record silently is fine — the console.log above is
+        // the durable record of this event either way.
+      });
+  }
+}
+
+async function getClassification(fingerprint) {
+  // Phase 3 will look this up in a chrome.storage.local `classifications`
+  // cache keyed by fingerprint (BRIEF §7: "classified exactly once, ever").
+  // No classification exists yet — always null. The HUD already knows how
+  // to render a record with no classification via its kind-based severity
+  // fallback, so this is a placeholder that needs no caller changes when
+  // Phase 3 fills it in.
+  return null;
 }
 
 // Module-scope mutex serializing all read-modify-write access to the
