@@ -25,6 +25,7 @@ window.__webErrorMonitorHudCss = `
     padding: 4px 10px;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    color: inherit;
   }
   .wem-dot {
     display: inline-block;
