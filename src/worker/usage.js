@@ -66,6 +66,11 @@ async function broadcastUsage(usageLog) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== 'GET_USAGE') return false;
-  getUsageSummary().then(sendResponse);
+  getUsageSummary()
+    .then(sendResponse)
+    .catch((error) => {
+      console.error('[web-error-monitor] failed to read usage summary', error);
+      sendResponse({ totalCostUsd: 0, totalInputTokens: 0, costLabel: '$0.0000', tokenLabel: '0 tok' });
+    });
   return true; // keep the channel open for the async sendResponse above
 });
