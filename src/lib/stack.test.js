@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { topFrameLocation, sourceFileFromStack } from './stack.js';
+import { topFrameLocation, sourceFileFromStack, normalizedFrameKey } from './stack.js';
 
 const SAMPLE_STACK = [
   'Error: boom',
@@ -33,4 +33,29 @@ test('returns null when the stack has no parsable frames', () => {
   assert.equal(topFrameLocation(''), null);
   assert.equal(topFrameLocation(null), null);
   assert.equal(sourceFileFromStack(null), null);
+});
+
+test('normalizedFrameKey drops the query string so an HMR cache-buster does not change it', () => {
+  const stackA = '    at Object.<anonymous> (http://localhost:5173/src/App.tsx?t=1758412330000:42:11)';
+  const stackB = '    at Object.<anonymous> (http://localhost:5173/src/App.tsx?t=1758412999999:42:11)';
+  assert.equal(
+    normalizedFrameKey(topFrameLocation('Error\n' + stackA)),
+    normalizedFrameKey(topFrameLocation('Error\n' + stackB))
+  );
+});
+
+test('normalizedFrameKey drops line:col so an edit above the error does not change it', () => {
+  const top1 = { file: 'http://localhost:5173/src/App.tsx', line: 42, col: 11 };
+  const top2 = { file: 'http://localhost:5173/src/App.tsx', line: 55, col: 3 };
+  assert.equal(normalizedFrameKey(top1), normalizedFrameKey(top2));
+});
+
+test('normalizedFrameKey still distinguishes different files', () => {
+  const top1 = { file: 'http://localhost:5173/src/App.tsx', line: 1, col: 1 };
+  const top2 = { file: 'http://localhost:5173/src/Other.tsx', line: 1, col: 1 };
+  assert.notEqual(normalizedFrameKey(top1), normalizedFrameKey(top2));
+});
+
+test('normalizedFrameKey returns an empty string when there is no frame', () => {
+  assert.equal(normalizedFrameKey(null), '');
 });

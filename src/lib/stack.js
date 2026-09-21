@@ -22,6 +22,11 @@ export function topFrameLocation(stack, { ignoreFiles = [] } = {}) {
   return null;
 }
 
+export function normalizedFrameKey(top) {
+  if (!top) return '';
+  return top.file.split('?')[0];
+}
+
 export function sourceFileFromStack(stack, options) {
   const top = topFrameLocation(stack, options);
   if (!top) return null;

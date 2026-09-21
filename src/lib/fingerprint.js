@@ -1,5 +1,5 @@
 import { normalizeMessage } from './normalize.js';
-import { topFrameLocation } from './stack.js';
+import { topFrameLocation, normalizedFrameKey } from './stack.js';
 
 export async function sha256Hex(text) {
   const data = new TextEncoder().encode(text);
@@ -9,11 +9,12 @@ export async function sha256Hex(text) {
     .join('');
 }
 
-export async function computeFingerprint({ kind, message, stack, sourceFile, ignoreFiles }) {
+export async function computeFingerprint({ kind, message, stack, ignoreFiles, status }) {
   const normalizedMessage = normalizeMessage(message);
   const top = topFrameLocation(stack, { ignoreFiles });
-  const topStackFrame = top ? top.raw : '';
-  const input = `${kind}|${normalizedMessage}|${topStackFrame}|${sourceFile ?? ''}`;
+  const frameKey = normalizedFrameKey(top);
+  const statusPart = status === undefined || status === null ? '' : String(status);
+  const input = `${kind}|${normalizedMessage}|${frameKey}|${statusPart}`;
   const hash = await sha256Hex(input);
   return hash.slice(0, 16);
 }
