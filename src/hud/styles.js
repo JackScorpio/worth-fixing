@@ -157,6 +157,12 @@ window.__webErrorMonitorHudCss = `
   .wem-chip-amber { background: rgba(245, 166, 35, 0.18); color: #f5a623; }
   .wem-chip-grey { background: rgba(255, 255, 255, 0.08); color: #aaa; }
   .wem-chip-pending { animation: wem-pulse 1.4s ease-in-out infinite; }
+  .wem-card-lowconf { border-left-style: dashed; }
+  .wem-chip-lowconf {
+    opacity: 0.7;
+    outline: 1px dashed currentColor;
+    outline-offset: -1px;
+  }
   .wem-chip-origin {
     background: rgba(124, 58, 237, 0.18);
     color: #c4a6ff;

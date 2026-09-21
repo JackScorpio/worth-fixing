@@ -272,6 +272,7 @@
 
     const row = document.createElement('div');
     row.className = `wem-row wem-card wem-card-${color}`;
+    if (classification?.lowConfidence) row.classList.add('wem-card-lowconf');
     row.dataset.fingerprint = fingerprint;
 
     const summary = document.createElement('div');
@@ -282,6 +283,10 @@
     const chip = document.createElement('span');
     chip.className = `wem-chip wem-chip-${color}`;
     if (!record.classification) chip.classList.add('wem-chip-pending');
+    if (classification?.lowConfidence) {
+      chip.classList.add('wem-chip-lowconf');
+      chip.title = 'Low confidence — Jev is unsure about this one';
+    }
     chip.textContent = priorityChipLabel(record);
     top.appendChild(chip);
 

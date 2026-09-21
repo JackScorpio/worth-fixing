@@ -68,3 +68,24 @@ export function applySilentBugPromotion(color, silentBugProbability) {
   if (index === -1) return color;
   return PROMOTION_ORDER[Math.min(index + 1, PROMOTION_ORDER.length - 1)];
 }
+
+const CRASH_KINDS = new Set(['uncaught', 'unhandledrejection']);
+const MUTED_ORIGINS = new Set(['framework_noise', 'browser_extension']);
+
+// Maps Jev's answers to what the HUD shows. Jev's verdict is followed
+// whenever it gave one; confidence is surfaced (lowConfidence) rather than
+// used to discard the answer. The one exception is a genuine crash that
+// Jev only tentatively calls ignorable/noise — that keeps its kind-based
+// display (displayColor null -> the HUD's red fallback) until Jev is sure.
+export function decideDisplay({ kind, priority = null, origin = null, silentBug = null }) {
+  const priorityUnsure = !!priority && !isConfident(priority.confidence);
+  let displayColor = priority ? bucketPriorityColor(priority) : null;
+  displayColor = applySilentBugPromotion(displayColor, silentBug ? silentBug.probability : undefined);
+  if (displayColor === 'grey' && priorityUnsure && CRASH_KINDS.has(kind)) displayColor = null;
+
+  const originUnsure = !!origin && !isConfident(origin.confidence);
+  let muted = !!origin && MUTED_ORIGINS.has(origin.choice);
+  if (muted && originUnsure && CRASH_KINDS.has(kind)) muted = false;
+
+  return { displayColor, muted, lowConfidence: priorityUnsure || (muted && originUnsure) };
+}

@@ -59,6 +59,7 @@
       silentBug: { probability: silent },
       displayColor: color,
       muted,
+      lowConfidence: conf < 0.5 || (muted && oconf < 0.5),
       classifiedAt: Date.now(),
     });
     const rec = (fp, kind, message, sourceFile, classification, ageMs = 0) => ({
@@ -82,6 +83,9 @@
         'react-dom.development.js:86:30', cls(0.2, 0.9, 'framework_noise', 0.95, 0.03, 'grey', true), 1000),
       rec('fp6', 'console.error', 'Boom: something just happened, not classified yet',
         'test-page.html:27:15', null, 500),
+      // Jev says "safe to ignore" at 26% confidence -> grey, low-confidence, leaves Needs attention
+      rec('fp7', 'network', 'POST https://analytics.google.com/g/collect?v=2&tid=G-1YYVBY0BK1 -> 0',
+        'gtag/js?id=G-1YYVBY0BK1:246:391', cls(0.3, 0.26, 'browser_extension', 0.4, 0.05, 'grey', true), 3000),
     ];
     for (const r of samples) hud.render(r);
     // duplicate occurrence -> ×2

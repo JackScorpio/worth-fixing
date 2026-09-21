@@ -63,7 +63,7 @@ async function handleCaptureEvent(message, sender) {
   const count = await incrementDedupeCount(fingerprint);
   console.log(`[web-error-monitor] ${record.kind} (x${count}) fp=${fingerprint}`, record);
 
-  const classification = await getClassification(fingerprint);
+  const classification = await getClassification(fingerprint, record.kind);
   if (!classification) {
     // Cache miss: kick off the debounced classification pipeline. This is
     // fire-and-forget — classification is inherently async (network call,

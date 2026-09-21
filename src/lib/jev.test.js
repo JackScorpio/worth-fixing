@@ -7,7 +7,52 @@ import {
   isConfident,
   bucketPriorityColor,
   applySilentBugPromotion,
+  decideDisplay,
 } from './jev.js';
+
+const LEGEND = { 0: 'ignore', 1: 'fix before merge', 2: 'fix now' };
+
+test('decideDisplay follows a confident priority', () => {
+  const result = decideDisplay({ kind: 'network', priority: { score: 1.9, legend: LEGEND, confidence: 0.88 } });
+  assert.equal(result.displayColor, 'red');
+  assert.equal(result.lowConfidence, false);
+});
+
+test('decideDisplay follows a low-confidence "ignore" for non-crash kinds, but flags it', () => {
+  const result = decideDisplay({ kind: 'network', priority: { score: 0.3, legend: LEGEND, confidence: 0.26 } });
+  assert.equal(result.displayColor, 'grey');
+  assert.equal(result.lowConfidence, true);
+});
+
+test('decideDisplay keeps a genuine crash on kind-based display when Jev is unsure it is ignorable', () => {
+  const result = decideDisplay({ kind: 'uncaught', priority: { score: 0.3, legend: LEGEND, confidence: 0.26 } });
+  assert.equal(result.displayColor, null);
+  assert.equal(result.lowConfidence, true);
+});
+
+test('decideDisplay still promotes for silent-bug risk', () => {
+  const result = decideDisplay({
+    kind: 'console.warn',
+    priority: { score: 0.2, legend: LEGEND, confidence: 0.9 },
+    silentBug: { probability: 0.8 },
+  });
+  assert.equal(result.displayColor, 'amber');
+});
+
+test('decideDisplay mutes framework/extension noise even at low origin confidence, flagged', () => {
+  const result = decideDisplay({ kind: 'console.warn', origin: { choice: 'browser_extension', confidence: 0.3 } });
+  assert.equal(result.muted, true);
+  assert.equal(result.lowConfidence, true);
+});
+
+test('decideDisplay does not mute a genuine crash on a low-confidence origin', () => {
+  const result = decideDisplay({ kind: 'uncaught', origin: { choice: 'browser_extension', confidence: 0.3 } });
+  assert.equal(result.muted, false);
+});
+
+test('decideDisplay with no answers falls back entirely', () => {
+  assert.deepEqual(decideDisplay({ kind: 'network' }), { displayColor: null, muted: false, lowConfidence: false });
+});
 
 test('truncateState leaves short text untouched', () => {
   assert.equal(truncateState('short'), 'short');

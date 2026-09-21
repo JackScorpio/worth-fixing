@@ -10,9 +10,7 @@ import {
   parseNoulAnswer,
   parseChoiceAnswer,
   parseScoreAnswer,
-  isConfident,
-  bucketPriorityColor,
-  applySilentBugPromotion,
+  decideDisplay,
 } from '../lib/jev.js';
 import { recordUsage } from './usage.js';
 
@@ -75,15 +73,20 @@ function buildState(record) {
 const TERMINAL_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;
 const TRANSIENT_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 
-export async function getClassification(fingerprint) {
+export async function getClassification(fingerprint, kind) {
   const { classifications = {} } = await chrome.storage.local.get('classifications');
   const entry = classifications[fingerprint];
   if (!entry) return null;
   if (entry.failed) {
     const cooldown = entry.terminal ? TERMINAL_FAILURE_COOLDOWN_MS : TRANSIENT_FAILURE_COOLDOWN_MS;
     if (Date.now() - entry.failedAt >= cooldown) return null; // cooldown elapsed: let it be retried
+    return entry;
   }
-  return entry;
+  // The raw answers are what's cached "once, ever"; how they map to a color
+  // and a mute is a display rule that has changed before and may again.
+  // Re-deriving it on read means a rule change reaches old entries without
+  // re-spending tokens on a second classification.
+  return { ...entry, ...decideDisplay({ kind, ...entry }) };
 }
 
 // Module-scope mutex serializing all read-modify-write access to the
@@ -161,17 +164,6 @@ async function notifyTabs(origin, fingerprint, classification) {
   }
 }
 
-function computeDisplayColor(priority, silentBug) {
-  if (!priority || !isConfident(priority.confidence)) return null;
-  const baseColor = bucketPriorityColor(priority);
-  return applySilentBugPromotion(baseColor, silentBug ? silentBug.probability : undefined);
-}
-
-function computeMuted(origin) {
-  if (!origin || !isConfident(origin.confidence)) return false;
-  return origin.choice === 'framework_noise' || origin.choice === 'browser_extension';
-}
-
 async function classifyWithRetry(record, jevApiKey) {
   const requestBody = buildJevRequest({ state: buildState(record), model: JEV_MODEL, questions: QUESTIONS });
 
@@ -207,8 +199,7 @@ async function classifyWithRetry(record, jevApiKey) {
         priority,
         origin,
         silentBug,
-        displayColor: computeDisplayColor(priority, silentBug),
-        muted: computeMuted(origin),
+        ...decideDisplay({ kind: record.kind, priority, origin, silentBug }),
         classifiedAt: Date.now(),
       };
     }
