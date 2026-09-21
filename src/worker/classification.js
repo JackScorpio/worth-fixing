@@ -71,7 +71,25 @@ export async function getClassification(fingerprint) {
   return classifications[fingerprint] || null;
 }
 
+// Module-scope mutex serializing all read-modify-write access to the
+// `classifications` key in chrome.storage.local. flush() dispatches many
+// classifyAndNotify() calls concurrently (via Promise.allSettled below), and
+// each one independently read-modifies-writes this same shared object; without
+// serializing, two calls finishing around the same time can both read the
+// same stale snapshot and the later write clobbers the earlier one's cache
+// entry. Mirrors the `dedupeQueue` pattern in src/worker/capture.js.
+let cacheQueue = Promise.resolve();
+
 async function cacheClassification(fingerprint, classification) {
+  const result = cacheQueue.then(() => cacheClassificationUnsafe(fingerprint, classification));
+  // Swallow rejections in the chain itself so one failed call doesn't
+  // permanently wedge the queue for subsequent calls; callers still see
+  // the original rejection via `result`.
+  cacheQueue = result.catch(() => {});
+  return result;
+}
+
+async function cacheClassificationUnsafe(fingerprint, classification) {
   const { classifications = {} } = await chrome.storage.local.get('classifications');
   classifications[fingerprint] = classification;
   await chrome.storage.local.set({ classifications });
@@ -83,7 +101,22 @@ async function isSessionCapReached() {
   return classificationCount >= sessionCap;
 }
 
+// Module-scope mutex serializing all read-modify-write access to the
+// `classificationCount` key in chrome.storage.session. Same race as
+// `cacheQueue` above (concurrent flush()-batch calls reading the same stale
+// count before either write lands), which otherwise lets the session cap be
+// overshot by however many fingerprints land in one debounce batch. A
+// separate queue from `cacheQueue` since the two guard unrelated storage
+// keys and needn't serialize against each other.
+let sessionCountQueue = Promise.resolve();
+
 async function incrementSessionCount() {
+  const result = sessionCountQueue.then(() => incrementSessionCountUnsafe());
+  sessionCountQueue = result.catch(() => {});
+  return result;
+}
+
+async function incrementSessionCountUnsafe() {
   const { classificationCount = 0 } = await chrome.storage.session.get('classificationCount');
   await chrome.storage.session.set({ classificationCount: classificationCount + 1 });
 }
@@ -139,9 +172,14 @@ async function classifyWithRetry(record) {
 
     if (response.ok) {
       const json = await response.json();
-      const priority = json.answers.priority ? parseScoreAnswer(json.answers.priority) : null;
-      const origin = json.answers.origin ? parseChoiceAnswer(json.answers.origin) : null;
-      const silentBug = json.answers.silent_bug ? parseNoulAnswer(json.answers.silent_bug) : null;
+      // Default to {} so a malformed/unexpected-shape 2xx response (e.g.
+      // missing `answers` entirely) degrades to a null classification
+      // instead of throwing — matching this pipeline's "never throw,
+      // degrade to null" contract.
+      const answers = json.answers || {};
+      const priority = answers.priority ? parseScoreAnswer(answers.priority) : null;
+      const origin = answers.origin ? parseChoiceAnswer(answers.origin) : null;
+      const silentBug = answers.silent_bug ? parseNoulAnswer(answers.silent_bug) : null;
       return {
         priority,
         origin,
@@ -165,10 +203,17 @@ async function classifyWithRetry(record) {
     }
 
     if (response.status === 429 || response.status === 529) {
-      const delayMs = 500 * 2 ** attempt;
-      console.warn(`[web-error-monitor] Jev rate-limited (${response.status}), retrying in ${delayMs}ms`);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      continue;
+      if (attempt < MAX_RETRY_ATTEMPTS) {
+        const delayMs = 500 * 2 ** attempt;
+        console.warn(`[web-error-monitor] Jev rate-limited (${response.status}), retrying in ${delayMs}ms`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      // Last attempt already: no point sleeping just to have the loop
+      // condition terminate it next iteration with no further attempt made.
+      // Fall through to the loop's natural exit, which already logs
+      // "exhausted retries, degrading to unclassified" below.
+      break;
     }
 
     console.error(`[web-error-monitor] unexpected Jev response status ${response.status}`);
@@ -202,7 +247,18 @@ async function flush() {
   const entries = Array.from(pendingFingerprints.entries());
   pendingFingerprints = new Map();
   for (const [fingerprint] of entries) inFlightFingerprints.add(fingerprint);
-  await Promise.all(entries.map(([fingerprint, record]) => classifyAndNotify(fingerprint, record)));
+  // allSettled (not all): a single rejected classifyAndNotify must never
+  // stop the cleanup loop below from running for the OTHER entries in this
+  // batch — otherwise every fingerprint in the batch stays stranded in
+  // inFlightFingerprints forever (queueForClassification's guard means a
+  // stranded fingerprint can never be classified again for the life of the
+  // worker).
+  const results = await Promise.allSettled(entries.map(([fingerprint, record]) => classifyAndNotify(fingerprint, record)));
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.error('[web-error-monitor] classifyAndNotify failed unexpectedly', result.reason);
+    }
+  }
   for (const [fingerprint] of entries) inFlightFingerprints.delete(fingerprint);
 }
 
