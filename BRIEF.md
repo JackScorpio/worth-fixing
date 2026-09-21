@@ -348,6 +348,42 @@ Shadow-root panel, collapsed/expanded, grouping by fingerprint with counts,
 copy button, clear. Severity by `kind` heuristic only. **This alone should
 already be useful — I want to run it for a day before Phase 3.**
 
+#### Punch-list from the Phase 1 final review — fix before/at the start of this phase
+
+The HUD reads `dedupeCounts` and groups by fingerprint, so it inherits these
+directly if left unfixed. Deferred out of Phase 1 as non-blocking, but
+cheaper to fix now than after the HUD depends on them:
+
+- **Unbounded dedupe counter.** `dedupeCounts` in `chrome.storage.local` is a
+  lifetime map across every origin ever monitored, rewritten in full on every
+  captured event — no pruning, no per-session scoping, no reset path. Give it
+  a session dimension (matches this section's own "count resets on
+  navigation" note above) and a size cap.
+- **Network events lose source attribution and collide on status.**
+  `captureStack()` runs inside the `fetch`/XHR async callbacks, after the
+  real call-site stack is gone, so `sourceFile` is always `null` for network
+  events. Separately, `normalizeMessage` strips the HTTP status code as a
+  plain number, so a 404 and a 500 on the same URL hash to the same
+  fingerprint. Capture the stack at the call site instead, and make the
+  fingerprint status-aware. Also: opaque `no-cors`/`redirect:'manual'`
+  responses report `status: 0` and get misclassified as failures — exclude
+  `response.type === 'opaque' || 'opaqueredirect'`.
+- **Fingerprint is unstable against a real dev server.** §5's formula hashes
+  `topStackFrame` and `sourceFile` verbatim, including line:col and any
+  query string — so Vite/Next's HMR cache-busting query param, or just
+  editing a line above the error, changes the fingerprint for the same
+  logical error. Normalize the frame the same way the message already is
+  (or drop `:line:col`/`?query` before hashing) so "same logical error
+  across reloads" (§5's own stated goal) actually holds outside a static
+  test page.
+- **§8.4 vs. this section's toggle requirement are in real tension.** §8.4
+  says never keep state outside `chrome.storage`; satisfying the toolbar
+  click's MV3 user-gesture requirement for `chrome.permissions.request`
+  needs a synchronous read, which storage can't provide. The shipped fix is
+  a read-through in-memory cache (`chrome.storage` stays the source of
+  truth) — noting it here so a future pass doesn't "fix" it back into
+  something that breaks the toggle again.
+
 ### Phase 3 — Jev layer
 
 Options page for the API key, classification call, fingerprint cache, quiet
