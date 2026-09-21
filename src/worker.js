@@ -50,8 +50,8 @@ async function handleCaptureEvent(message, sender) {
     kind: payload.kind,
     message: payload.message,
     stack: payload.stack,
-    sourceFile,
     ignoreFiles: IGNORE_STACK_FILES,
+    status: payload.request?.status,
   });
 
   const record = {
@@ -72,12 +72,19 @@ async function handleCaptureEvent(message, sender) {
 }
 
 // Module-scope mutex serializing all read-modify-write access to the
-// `dedupeCounts` key in chrome.storage.local. This holds no data itself
-// (the counts remain solely in chrome.storage.local, the source of truth) —
+// `dedupeCounts` key in chrome.storage.session. This holds no data itself
+// (the counts remain solely in chrome.storage.session, the source of truth) —
 // it only orders concurrent calls so a get()...set() pair can't interleave
 // with another and lose an update. Resetting to Promise.resolve() on a
 // service-worker restart is harmless: there's nothing in-flight to lose.
 let dedupeQueue = Promise.resolve();
+
+// chrome.storage.session (not .local): dedupe counts are a diagnostic
+// display aid, not durable data worth keeping across browser restarts.
+// Session storage is in-memory and clears automatically when the browser
+// closes, which caps the previous unbounded, lifetime-across-every-origin
+// growth without needing an explicit reset path.
+const DEDUPE_COUNT_CAP = 1000;
 
 async function incrementDedupeCount(fingerprint) {
   const result = dedupeQueue.then(() => incrementDedupeCountUnsafe(fingerprint));
@@ -89,9 +96,17 @@ async function incrementDedupeCount(fingerprint) {
 }
 
 async function incrementDedupeCountUnsafe(fingerprint) {
-  const { dedupeCounts = {} } = await chrome.storage.local.get('dedupeCounts');
+  const { dedupeCounts = {} } = await chrome.storage.session.get('dedupeCounts');
+  if (!(fingerprint in dedupeCounts)) {
+    const keys = Object.keys(dedupeCounts);
+    if (keys.length >= DEDUPE_COUNT_CAP) {
+      // Evict the oldest-inserted entry (object key order is insertion
+      // order for string keys) to keep the map bounded.
+      delete dedupeCounts[keys[0]];
+    }
+  }
   dedupeCounts[fingerprint] = (dedupeCounts[fingerprint] || 0) + 1;
-  await chrome.storage.local.set({ dedupeCounts });
+  await chrome.storage.session.set({ dedupeCounts });
   return dedupeCounts[fingerprint];
 }
 
