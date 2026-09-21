@@ -19,10 +19,21 @@
       : message;
   }
 
-  function severityColor(kind) {
+  function kindColor(kind) {
     if (kind === 'uncaught' || kind === 'unhandledrejection' || kind === 'network') return 'red';
     if (kind === 'console.error') return 'amber';
     return 'grey';
+  }
+
+  // classification.displayColor is precomputed worker-side (src/worker/classification.js)
+  // from the raw Jev answers — this file never does Jev-specific bucketing itself,
+  // since it's a classic script and can't import src/lib/jev.js's ES module exports.
+  function severityColor(record) {
+    return record.classification?.displayColor || kindColor(record.kind);
+  }
+
+  function isMuted(record) {
+    return !!record.classification?.muted;
   }
 
   function buildDom() {
@@ -107,7 +118,8 @@
     let amber = 0;
     let grey = 0;
     for (const { record } of groups.values()) {
-      const color = severityColor(record.kind);
+      if (isMuted(record)) continue;
+      const color = severityColor(record);
       if (color === 'red') red++;
       else if (color === 'amber') amber++;
       else grey++;
@@ -126,7 +138,7 @@
     const summary = document.createElement('div');
     summary.className = 'wem-row-summary';
     const dot = document.createElement('span');
-    dot.className = `wem-dot wem-dot-${severityColor(record.kind)}`;
+    dot.className = `wem-dot wem-dot-${severityColor(record)}`;
     const message = document.createElement('span');
     message.className = 'wem-row-message';
     message.textContent = truncate(record.message);
@@ -188,9 +200,40 @@
     const entries = Array.from(groups.entries()).sort(
       (a, b) => b[1].record.timestamp - a[1].record.timestamp
     );
-    for (const [fingerprint, entry] of entries) {
+    const mainEntries = entries.filter(([, entry]) => !isMuted(entry.record));
+    const mutedEntries = entries.filter(([, entry]) => isMuted(entry.record));
+
+    for (const [fingerprint, entry] of mainEntries) {
       els.list.appendChild(buildRow(fingerprint, entry));
     }
+
+    if (mutedEntries.length > 0) {
+      els.list.appendChild(buildMutedSection(mutedEntries));
+    }
+  }
+
+  function buildMutedSection(mutedEntries) {
+    const section = document.createElement('div');
+    section.className = 'wem-muted-section';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'wem-muted-toggle';
+    toggle.textContent = `Muted (framework noise) ×${mutedEntries.length}`;
+
+    const list = document.createElement('div');
+    list.className = 'wem-muted-list';
+    list.hidden = true;
+    for (const [fingerprint, entry] of mutedEntries) {
+      list.appendChild(buildRow(fingerprint, entry));
+    }
+
+    toggle.addEventListener('click', () => {
+      list.hidden = !list.hidden;
+    });
+
+    section.append(toggle, list);
+    return section;
   }
 
   function render(record) {
@@ -201,6 +244,15 @@
       count: (existing ? existing.count : 0) + 1,
       expanded: existing ? existing.expanded : false,
     });
+    renderCounts();
+    renderList();
+  }
+
+  function updateClassification(fingerprint, classification) {
+    if (!els) return;
+    const entry = groups.get(fingerprint);
+    if (!entry) return; // the row may have been cleared before classification arrived
+    entry.record = { ...entry.record, classification };
     renderCounts();
     renderList();
   }
@@ -232,5 +284,5 @@
     window.__webErrorMonitorHudInstalled = false;
   }
 
-  window.__webErrorMonitorHud = { init, render, clear, teardown };
+  window.__webErrorMonitorHud = { init, render, clear, teardown, updateClassification };
 })();

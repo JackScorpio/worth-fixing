@@ -96,6 +96,23 @@ window.__webErrorMonitorHudCss = `
   .wem-row-detail {
     margin-top: 6px;
   }
+  .wem-muted-section {
+    margin-top: 4px;
+  }
+  .wem-muted-toggle {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.6;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+  .wem-muted-list {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
   .wem-row-full-message {
     white-space: pre-wrap;
     word-break: break-word;

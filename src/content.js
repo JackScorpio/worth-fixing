@@ -51,6 +51,8 @@
       window.__webErrorMonitorHud.teardown();
     } else if (message.type === 'RECORD') {
       window.__webErrorMonitorHud.render(message.record);
+    } else if (message.type === 'CLASSIFICATION_UPDATE') {
+      window.__webErrorMonitorHud.updateClassification(message.fingerprint, message.classification);
     }
   });
 })();
