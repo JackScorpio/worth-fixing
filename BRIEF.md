@@ -348,34 +348,36 @@ Shadow-root panel, collapsed/expanded, grouping by fingerprint with counts,
 copy button, clear. Severity by `kind` heuristic only. **This alone should
 already be useful — I want to run it for a day before Phase 3.**
 
-#### Punch-list from the Phase 1 final review — fix before/at the start of this phase
+#### Punch-list from the Phase 1 final review
 
-The HUD reads `dedupeCounts` and groups by fingerprint, so it inherits these
-directly if left unfixed. Deferred out of Phase 1 as non-blocking, but
-cheaper to fix now than after the HUD depends on them:
+The HUD reads `dedupeCounts` and groups by fingerprint, so it would have
+inherited these directly if left unfixed. Fixed ahead of Phase 2, before any
+HUD code depends on them:
 
-- **Unbounded dedupe counter.** `dedupeCounts` in `chrome.storage.local` is a
-  lifetime map across every origin ever monitored, rewritten in full on every
-  captured event — no pruning, no per-session scoping, no reset path. Give it
-  a session dimension (matches this section's own "count resets on
-  navigation" note above) and a size cap.
-- **Network events lose source attribution and collide on status.**
-  `captureStack()` runs inside the `fetch`/XHR async callbacks, after the
-  real call-site stack is gone, so `sourceFile` is always `null` for network
-  events. Separately, `normalizeMessage` strips the HTTP status code as a
-  plain number, so a 404 and a 500 on the same URL hash to the same
-  fingerprint. Capture the stack at the call site instead, and make the
-  fingerprint status-aware. Also: opaque `no-cors`/`redirect:'manual'`
-  responses report `status: 0` and get misclassified as failures — exclude
-  `response.type === 'opaque' || 'opaqueredirect'`.
-- **Fingerprint is unstable against a real dev server.** §5's formula hashes
-  `topStackFrame` and `sourceFile` verbatim, including line:col and any
-  query string — so Vite/Next's HMR cache-busting query param, or just
-  editing a line above the error, changes the fingerprint for the same
-  logical error. Normalize the frame the same way the message already is
-  (or drop `:line:col`/`?query` before hashing) so "same logical error
-  across reloads" (§5's own stated goal) actually holds outside a static
-  test page.
+- ✅ **Unbounded dedupe counter.** `dedupeCounts` in `chrome.storage.local` was
+  a lifetime map across every origin ever monitored, rewritten in full on
+  every captured event — no pruning, no per-session scoping, no reset path.
+  Moved to `chrome.storage.session` (clears when the browser session ends)
+  with a 1000-entry cap, oldest-first eviction.
+- ✅ **Network events lost source attribution and collided on status.**
+  `captureStack()` used to run inside the `fetch`/XHR async callbacks, after
+  the real call-site stack was gone, so `sourceFile` was always `null` for
+  network events. Now captured synchronously at the call site (verified live:
+  a captured network event's stack now shows the real page frame, e.g.
+  `test-page.html:24:7`, not just a bare `Error`). `computeFingerprint` also
+  now takes the HTTP status as its own hash input, so a 404 and a 500 on the
+  same URL no longer collide. Opaque `no-cors`/`redirect:'manual'` responses
+  (`response.type === 'opaque' || 'opaqueredirect'`) are excluded — they
+  always report `status: 0` even on success.
+- ✅ **Fingerprint was unstable against a real dev server.** §5's formula
+  hashed `topStackFrame` and `sourceFile` verbatim, including line:col and
+  any query string — so Vite/Next's HMR cache-busting query param, or just
+  editing a line above the error, changed the fingerprint for the same
+  logical error. The frame is now normalized before hashing (query string
+  and `:line:col` stripped) — verified with unit tests — while the
+  human-readable `sourceFile` field shown in the record is unchanged, still
+  precise. "Same logical error across reloads" (§5's own stated goal) now
+  holds outside a static test page too.
 - **§8.4 vs. this section's toggle requirement are in real tension.** §8.4
   says never keep state outside `chrome.storage`; satisfying the toolbar
   click's MV3 user-gesture requirement for `chrome.permissions.request`
