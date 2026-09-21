@@ -123,22 +123,42 @@ async function enableOrigin(origin, tabId) {
   const granted = await chrome.permissions.request({ origins: [pattern] });
   if (!granted) return;
 
+  const mainId = `${SCRIPT_ID_PREFIX}-main-${origin}`;
+  const contentId = `${SCRIPT_ID_PREFIX}-content-${origin}`;
+  const scriptIds = [mainId, contentId];
+  // Tracks whether THIS call is the one that registered the content
+  // scripts, so the catch block below only ever tears down state it
+  // itself just created.
+  let registeredJustNow = false;
+
   try {
-    await chrome.scripting.registerContentScripts([
-      {
-        id: `${SCRIPT_ID_PREFIX}-main-${origin}`,
-        matches: [pattern],
-        js: ['src/main-world.js'],
-        world: 'MAIN',
-        runAt: 'document_start',
-      },
-      {
-        id: `${SCRIPT_ID_PREFIX}-content-${origin}`,
-        matches: [pattern],
-        js: ['src/content.js'],
-        runAt: 'document_start',
-      },
-    ]);
+    // Guard against a stale-cache misjudgment: chrome.action.onClicked
+    // reads a synchronously-cached enabledOrigins snapshot (to preserve the
+    // click's transient user gesture) that can still read "disabled" for an
+    // origin that a prior, still-valid session already enabled — most
+    // plausibly right after the click itself wakes a terminated service
+    // worker back up, before its startup cache-load promise has resolved.
+    // If the scripts are already registered, there's nothing to do here;
+    // registering again would throw on the duplicate ids.
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: scriptIds });
+    if (existing.length < 2) {
+      await chrome.scripting.registerContentScripts([
+        {
+          id: mainId,
+          matches: [pattern],
+          js: ['src/main-world.js'],
+          world: 'MAIN',
+          runAt: 'document_start',
+        },
+        {
+          id: contentId,
+          matches: [pattern],
+          js: ['src/content.js'],
+          runAt: 'document_start',
+        },
+      ]);
+      registeredJustNow = true;
+    }
 
     // The page already loaded before permission was granted, so inject once
     // immediately in addition to the persistent registration above.
@@ -146,19 +166,25 @@ async function enableOrigin(origin, tabId) {
     await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] });
   } catch (error) {
     console.error(`[web-error-monitor] failed to enable ${origin}`, error);
-    // Best-effort full rollback. registerContentScripts may have already
-    // succeeded before one of the subsequent executeScript calls threw, so
-    // always attempt to unregister both script ids — if they were never
-    // registered this is a harmless no-op / benign rejection, but if they
-    // were registered, leaving them behind would permanently break future
-    // enable attempts for this origin (registerContentScripts rejects on a
-    // duplicate id, and registrations persist across service-worker restarts).
+
+    if (!registeredJustNow) {
+      // The scripts (and the permission) already existed before this call —
+      // either the stale-cache race described above, or some other case
+      // where they were already registered. That state predates this call
+      // and may be a valid, working prior enable, so don't tear it down and
+      // don't touch enabledOrigins here. A later click, or the cache
+      // eventually catching up, will resolve to the correct state.
+      return;
+    }
+
+    // Best-effort full rollback of state THIS call created. registerContentScripts
+    // succeeded above before one of the subsequent executeScript calls threw, so
+    // unregister both script ids we just registered — leaving them behind would
+    // permanently break future enable attempts for this origin
+    // (registerContentScripts rejects on a duplicate id, and registrations persist
+    // across service-worker restarts).
     // Swallow failures here so they don't mask the original error above.
-    await chrome.scripting
-      .unregisterContentScripts({
-        ids: [`${SCRIPT_ID_PREFIX}-main-${origin}`, `${SCRIPT_ID_PREFIX}-content-${origin}`],
-      })
-      .catch(() => {});
+    await chrome.scripting.unregisterContentScripts({ ids: scriptIds }).catch(() => {});
     // Best-effort: revoke the permission we just got granted so we don't
     // leave a dangling grant that neither storage nor the badge reflects.
     // Swallow failures here so they don't mask the original error above.
