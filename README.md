@@ -10,6 +10,10 @@ extension captures errors as they happen, asks Jev to judge each one, and
 surfaces the result as an on-page dashboard: what's urgent, where it came
 from, how confident the model is, and what the classification is costing you.
 
+<p align="center">
+  <img src="docs/screenshot.jpg" alt="The dashboard: a cost badge, an origin donut and spend chart, and error cards tagged FIX NOW or WORTH FIXING BEFORE MERGE with confidence meters" width="420">
+</p>
+
 **Status:** working and in daily use. Not published to the Chrome Web Store —
 load it unpacked (below).
 
