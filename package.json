@@ -1,6 +1,7 @@
 {
   "name": "web-error-monitor",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"

@@ -229,3 +229,7 @@ each phase.
 Issues and pull requests welcome. Please run `npm test` before opening a PR,
 and add tests for anything new in `src/lib/`. For UI changes, a before/after
 screenshot from `dev/hud-harness.html` makes review much easier.
+
+## License
+
+[MIT](LICENSE)
